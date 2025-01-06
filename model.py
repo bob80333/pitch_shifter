@@ -307,7 +307,7 @@ if __name__ == "__main__":
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"# params: {params/1e6:.2f}M")
     x = torch.randn(8, 65024)
-    # 127*512, the spectrogram pads by 512 to 65536, giving exactly 1024x128 image
+    # 127*512, the spectrogram pads by 512 to 65536, giving exactly 1024x128 2D shape
     print(x.shape)
     shift = torch.zeros(8, 1)
     from time import time

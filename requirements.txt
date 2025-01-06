@@ -1,0 +1,7 @@
+torch
+torchaudio
+numpy
+soundfile
+k_diffusion
+penn
+git+https://github.com/KellerJordan/Muon
