@@ -3,5 +3,5 @@ torchaudio
 numpy
 soundfile
 k_diffusion
-penn
+torchcrepe
 git+https://github.com/KellerJordan/Muon

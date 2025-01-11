@@ -14,6 +14,11 @@ class AudioDataset(Dataset):
     def __getitem__(self, idx):
         path = self.paths[idx]
         audio, _ = soundfile.read(path)
+
+        # pad audio if necessary
+        if len(audio) < self.samples:
+            audio = np.pad(audio, (0, self.samples - len(audio) + 1))
+
         if self.test:
             # return middle 65024 samples
             start = len(audio) // 2 - self.samples // 2
@@ -22,9 +27,5 @@ class AudioDataset(Dataset):
             # return random 65024 samples
             start = np.random.randint(0, len(audio) - self.samples)
             audio = audio[start : start + self.samples]
-
-        # pad audio if necessary
-        if len(audio) < self.samples:
-            audio = np.pad(audio, (0, self.samples - len(audio)))
 
         return audio
