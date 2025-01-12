@@ -11,6 +11,8 @@ import torchaudio.functional as F
 from torch.utils.tensorboard import SummaryWriter
 import os
 from pesto import load_model
+from torch_pitch_shift import get_fast_shifts, pitch_shift
+
 
 sr = 48000
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -51,6 +53,10 @@ def main(args):
 
     writer = SummaryWriter(args.save_dir)
 
+    print("Pitch Shift Ratios", [float(x) for x in get_fast_shifts(sr)])
+
+    fast_shift_ratios = torch.tensor([float(x) for x in get_fast_shifts(sr)]).to(device)
+
     train_gen = inf_train_generator(train_dataloader)
 
     for step in trange(args.n_steps):
@@ -60,28 +66,29 @@ def main(args):
         audio = next(train_gen)
         audio = audio.to(device).float()
 
-        # pick number of semitones to shift audio by from -3 octaves to +3 octaves (-36 to +36 semitones)
-        pitch_semitones = torch.randint(-36, 37, (args.batch_size, 1), device=device).float()
-        # convert from semitones to pitch multiplier
-        pitch_multiplier = 2 ** (pitch_semitones / 12)
+        # pick multiplier from a set of fast shifts
+        pitch_multiplier = fast_shift_ratios[torch.randint(0, len(fast_shift_ratios), (1, 1), device=device)]
 
         # shift audio and then shift it back
         shifted_audio = model(audio, pitch_multiplier)
         unshifted_audio = model(shifted_audio, 1 / pitch_multiplier)
 
-        # measure pitch of original / shifted audio
-        audio_pitches, _ = pesto_model(audio, sr, convert_to_freq=True)
-        shifted_pitches, _ = pesto_model(shifted_audio, sr, convert_to_freq=True)
+        # get embeddings of shifted audio vs original audio shifted to the same pitch
+        traditional_shifted_audio = pitch_shift(audio.unsqueeze(1), pitch_multiplier.item(), sr)
+        audio_pitch_embeds = pesto_model(traditional_shifted_audio.squeeze(), sr, return_activations=True)[2]
+        shifted_pitch_embeds = pesto_model(shifted_audio, sr, return_activations=True)[2]
+        #print(audio_pitch_embeds.shape, shifted_pitch_embeds.shape)
+        #break
 
         # calculate pitch error for shifted (should be pitch * pitch_multiplier)
-        pitch_error = pitch_loss(shifted_pitches, audio_pitches * pitch_multiplier)
+        pitch_error = pitch_loss(shifted_pitch_embeds, audio_pitch_embeds)
 
         # add channels dimension for losses calculation
         audio = audio.unsqueeze(1)
-        shifted_audio = shifted_audio.unsqueeze(1)
+        unshifted_audio = unshifted_audio.unsqueeze(1)
 
         # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
-        stft_error = stft_loss(audio, unshifted_audio)
+        stft_error = stft_loss(unshifted_audio, audio)
 
         loss = args.pitch_loss_weight * pitch_error +  args.stft_loss_weight * stft_error
 
@@ -102,28 +109,28 @@ def main(args):
                 i = 0
                 for audio in val_dataloader:
                     audio = audio.to(device).float()
-
-                    # always shift up by 1 octave (12 semitones)
-                    pitch_semitones = torch.tensor([12.0]).unsqueeze(1).to(device)
-                    # convert from semitones to pitch multiplier (1 octave is 2x pitch)
-                    pitch_multiplier = 2 ** (pitch_semitones / 12)
+                    # always shift up by 1/2 octave (1.5x pitch)
+                    pitch_multiplier = torch.tensor([1.5]).unsqueeze(1).to(device)
                     
                     # shift audio and then shift it back
                     shifted_audio = model(audio, pitch_multiplier)
                     unshifted_audio = model(shifted_audio, 1 / pitch_multiplier)
 
-                    # measure pitch of original / shifted audio
-                    audio_pitches, _ = pesto_model(audio, sr, convert_to_freq=True)
-                    shifted_pitches, _ = pesto_model(shifted_audio, sr, convert_to_freq=True)
+                    # get embeddings of shifted audio vs original audio shifted to the same pitch
+                    traditional_shifted_audio = pitch_shift(audio.unsqueeze(1), pitch_multiplier.item(), sr)
+                    audio_pitch_embeds = pesto_model(traditional_shifted_audio.squeeze(), sr, return_activations=True)[2]
+                    shifted_pitch_embeds = pesto_model(shifted_audio, sr, return_activations=True)[2]
+                    #print(audio_pitch_embeds.shape, shifted_pitch_embeds.shape)
+                    #break
 
                     # calculate pitch error for shifted (should be pitch * pitch_multiplier)
-                    pitch_error = pitch_loss(shifted_pitches, audio_pitches * pitch_multiplier)
+                    pitch_error = pitch_loss(shifted_pitch_embeds, audio_pitch_embeds)
 
                     # add channels dimension for losses calculation
                     audio = audio.unsqueeze(1)
                     unshifted_audio = unshifted_audio.unsqueeze(1)
 
-                    stft_error = stft_loss(audio, unshifted_audio)
+                    stft_error = stft_loss(unshifted_audio, audio)
 
                     val_loss = args.pitch_loss_weight * pitch_error +  args.stft_loss_weight * stft_error
 
@@ -154,12 +161,12 @@ def main(args):
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
     argparser.add_argument("--n_steps", type=int, default=5000)
-    argparser.add_argument("--eval_every", type=int, default=500)
-    argparser.add_argument("--batch_size", type=int, default=32)
-    argparser.add_argument("--n_workers", type=int, default=2)
+    argparser.add_argument("--eval_every", type=int, default=50)
+    argparser.add_argument("--batch_size", type=int, default=16)
+    argparser.add_argument("--n_workers", type=int, default=4)
     argparser.add_argument("--pitch_loss_weight", type=float, default=1.0)
-    argparser.add_argument("--stft_loss_weight", type=float, default=1.0)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output2" )
+    argparser.add_argument("--stft_loss_weight", type=float, default=1000.0)
+    argparser.add_argument("--save_dir", type=str, default="outputs/output7" )
 
     args = argparser.parse_args()
 
