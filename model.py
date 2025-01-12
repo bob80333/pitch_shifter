@@ -186,6 +186,69 @@ class ConvNextAdaLNZeroBlock(nn.Module):
 
         return x + res
 
+# from k-diffusion, AdaRMSNorm:  
+def zero_init(layer):
+    nn.init.zeros_(layer.weight)
+    if layer.bias is not None:
+        nn.init.zeros_(layer.bias)
+    return layer
+
+from functools import reduce
+
+def rms_norm(x, scale, eps):
+    dtype = reduce(torch.promote_types, (x.dtype, scale.dtype, torch.float32))
+    mean_sq = torch.mean(x.to(dtype)**2, dim=-1, keepdim=True)
+    scale = scale.to(dtype) * torch.rsqrt(mean_sq + eps)
+    return x * scale.to(x.dtype)
+
+class AdaRMSNorm(nn.Module):
+    def __init__(self, features, cond_features, eps=1e-6):
+        super().__init__()
+        self.eps = eps
+        self.linear = zero_init(nn.Linear(cond_features, features, bias=False))
+
+    def extra_repr(self):
+        return f"eps={self.eps},"
+
+    def forward(self, x, cond):
+        return rms_norm(x, self.linear(cond)[:, None, None, :] + 1, self.eps)
+
+class ConvNextAdaRMSBlock(nn.Module):
+    def __init__(self, channels, expansion=4, layer_scale_init=1e-6):
+        super().__init__()
+
+        self.dw_conv = nn.Conv2d(
+            channels, channels, kernel_size=7, padding=3, groups=channels
+        )
+
+        self.norm = AdaRMSNorm(channels, 128)
+
+        self.pw_conv1 = nn.Linear(channels, channels * expansion)
+        self.pw_conv2 = nn.Linear(channels * expansion, channels)
+
+        self.act = nn.GELU()
+
+        self.gamma = (
+            nn.Parameter(torch.ones(channels) * layer_scale_init, requires_grad=True)
+            if layer_scale_init > 0
+            else None
+        )
+
+    def forward(self, x, pitch_shift):
+        res = x
+        x = self.dw_conv(x)
+        x = x.permute(0, 2, 3, 1).contiguous()
+        x = self.norm(x, pitch_shift)
+        x = self.pw_conv1(x)
+        x = self.act(x)
+        x = self.pw_conv2(x)
+
+        if self.gamma is not None:
+            x = x * self.gamma
+
+        x = x.permute(0, 3, 1, 2).contiguous()
+
+        return x + res
 
 class Encoder(nn.Module):
     def __init__(self, channels, blocks, factors, scale_vs_channels):
@@ -202,14 +265,14 @@ class Encoder(nn.Module):
                 )
             )
             for _ in range(blocks[i - 1]):
-                self.blocks.append(ConvNextAdaLNZeroBlock(channels[i]))
+                self.blocks.append(ConvNextAdaRMSBlock(channels[i]))
 
     def forward(self, x, pitch_shift):
         residuals = []
         for block in self.blocks:
             if isinstance(block, DownsampleWithSkip):
                 residuals.append(x)
-            if isinstance(block, ConvNextAdaLNZeroBlock):
+            if isinstance(block, ConvNextAdaRMSBlock):
                 x = block(x, pitch_shift)
             else:
                 x = block(x)
@@ -224,7 +287,7 @@ class Decoder(nn.Module):
         self.blocks = nn.ModuleList()
         for i in range(1, len(channels)):
             for _ in range(blocks[i - 1]):
-                self.blocks.append(ConvNextAdaLNZeroBlock(channels[i - 1]))
+                self.blocks.append(ConvNextAdaRMSBlock(channels[i - 1]))
             self.blocks.append(
                 UpsampleWithSkip(
                     channels[i - 1],
@@ -236,7 +299,7 @@ class Decoder(nn.Module):
 
     def forward(self, x, residuals, pitch_shift):
         for block in self.blocks:
-            if isinstance(block, ConvNextAdaLNZeroBlock):
+            if isinstance(block, ConvNextAdaRMSBlock):
                 x = block(x, pitch_shift)
             else:
                 x = block(x)
