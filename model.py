@@ -261,7 +261,14 @@ class UNet(nn.Module):
             channels[::-1], blocks[::-1], factors[::-1], scale_vs_channels[::-1]
         )
 
-        self.timestep_embed = FourierFeatures(1, 128)
+        #self.timestep_embed = FourierFeatures(1, 128)
+        self.timestep_embed = nn.Sequential(
+            nn.Linear(1, 256),
+            nn.GELU(),
+            nn.Linear(256, 256),
+            nn.GELU(),
+            nn.Linear(256, 128),
+        )
 
     def forward(self, x, pitch_shift=0):
         pitch_embed = self.timestep_embed(pitch_shift)
