@@ -1,6 +1,5 @@
 from muon import Muon
 import torch
-import torch.optim as optim
 from model import AudioUNet
 from data import AudioDataset
 from torch.utils.data import DataLoader
@@ -11,7 +10,7 @@ from auraloss.freq import MultiResolutionSTFTLoss
 import torchaudio.functional as F
 from torch.utils.tensorboard import SummaryWriter
 import os
-import torchcrepe
+from pesto import load_model
 
 sr = 48000
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -45,6 +44,9 @@ def main(args):
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.n_workers, persistent_workers=True)
 
     pitch_loss = torch.nn.MSELoss()
+    pesto_model = load_model("mir-1k", step_size=20., sampling_rate=sr).to(device)
+    pesto_model.eval()
+
     stft_loss = MultiResolutionSTFTLoss(fft_sizes = [4096, 2048, 1024], hop_sizes = [480, 240, 120], win_lengths = [2400, 1200, 600], scale="mel", n_bins=128, sample_rate=sr, perceptual_weighting=True)
 
     writer = SummaryWriter(args.save_dir)
@@ -59,35 +61,26 @@ def main(args):
         audio = audio.to(device).float()
 
         # pick number of semitones to shift audio by from -3 octaves to +3 octaves (-36 to +36 semitones)
-        pitch_semitones = torch.randint(-36, 37, (1, 1), device=device).float()
+        pitch_semitones = torch.randint(-36, 37, (args.batch_size, 1), device=device).float()
         # convert from semitones to pitch multiplier
         pitch_multiplier = 2 ** (pitch_semitones / 12)
-
 
         # shift audio and then shift it back
         shifted_audio = model(audio, pitch_multiplier)
         unshifted_audio = model(shifted_audio, 1 / pitch_multiplier)
 
+        # measure pitch of original / shifted audio
+        audio_pitches, _ = pesto_model(audio, sr, convert_to_freq=True)
+        shifted_pitches, _ = pesto_model(shifted_audio, sr, convert_to_freq=True)
+
+        # calculate pitch error for shifted (should be pitch * pitch_multiplier)
+        pitch_error = pitch_loss(shifted_pitches, audio_pitches * pitch_multiplier)
+
         # add channels dimension for losses calculation
         audio = audio.unsqueeze(1)
         shifted_audio = shifted_audio.unsqueeze(1)
-        unshifted_audio = unshifted_audio.unsqueeze(1)
-        pitch_multiplier = pitch_multiplier.unsqueeze(1)
 
-        # measure pitch of original / shifted / unshifted audio
-        # pitch = F.detect_pitch_frequency(audio, sr)
-        # shifted_audio_pitch = F.detect_pitch_frequency(shifted_audio, sr)
-        # unshifted_audio_pitch = F.detect_pitch_frequency(unshifted_audio, sr)
-        pitch_embed = torchcrepe.embed(audio, sr, hop, device)
-        shifted_pitch_embed = torchcrepe.embed(F.pitch_shift(audio, sr, n_steps=pitch_semitones.item()), sr, hop, device)
-        shifted_audio_pitch_embed = torchcrepe.embed(shifted_audio, sr, hop, device)
-        unshifted_audio_pitch_embed = torchcrepe.embed(unshifted_audio, sr, hop, device)
-
-        # calculate pitch error for shifted (should be pitch * pitch_multiplier) and unshifted (should be pitch)
-        pitch_error = pitch_loss(shifted_audio_pitch_embed, shifted_pitch_embed)
-        pitch_error += pitch_loss(unshifted_audio_pitch_embed, pitch_embed)
-
-        # calculate stft error for unshifted audio, should not have artifacts from shifting
+        # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
         stft_error = stft_loss(audio, unshifted_audio)
 
         loss = args.pitch_loss_weight * pitch_error +  args.stft_loss_weight * stft_error
@@ -108,29 +101,27 @@ def main(args):
                 total_stft_error = 0
                 i = 0
                 for audio in val_dataloader:
-                    pitch_semitones = torch.tensor([12.0]).unsqueeze(1).unsqueeze(1).to(device)
-                    pitch_multiplier = 2 ** (pitch_semitones / 12)
                     audio = audio.to(device).float()
+
+                    # always shift up by 1 octave (12 semitones)
+                    pitch_semitones = torch.tensor([12.0]).unsqueeze(1).to(device)
+                    # convert from semitones to pitch multiplier (1 octave is 2x pitch)
+                    pitch_multiplier = 2 ** (pitch_semitones / 12)
+                    
+                    # shift audio and then shift it back
                     shifted_audio = model(audio, pitch_multiplier)
                     unshifted_audio = model(shifted_audio, 1 / pitch_multiplier)
 
+                    # measure pitch of original / shifted audio
+                    audio_pitches, _ = pesto_model(audio, sr, convert_to_freq=True)
+                    shifted_pitches, _ = pesto_model(shifted_audio, sr, convert_to_freq=True)
+
+                    # calculate pitch error for shifted (should be pitch * pitch_multiplier)
+                    pitch_error = pitch_loss(shifted_pitches, audio_pitches * pitch_multiplier)
+
                     # add channels dimension for losses calculation
                     audio = audio.unsqueeze(1)
-                    shifted_audio = shifted_audio.unsqueeze(1)
                     unshifted_audio = unshifted_audio.unsqueeze(1)
-                    pitch_multiplier = pitch_multiplier.unsqueeze(1)
-
-                    # pitch = F.detect_pitch_frequency(audio, sr)
-                    # pitch_error = pitch_loss(pitch * pitch_multiplier, F.detect_pitch_frequency(shifted_audio, sr))
-                    # pitch_error += pitch_loss(pitch, F.detect_pitch_frequency(unshifted_audio, sr))
-
-                    pitch_embed = torchcrepe.embed(audio, sr, hop, device)
-                    shifted_pitch_embed = torchcrepe.embed(F.pitch_shift(audio, sr, n_steps=12), sr, hop, device)
-                    shifted_audio_pitch_embed = torchcrepe.embed(shifted_audio, sr, hop, device)
-                    unshifted_audio_pitch_embed = torchcrepe.embed(unshifted_audio, sr, hop, device)
-
-                    pitch_error = pitch_loss(shifted_audio_pitch_embed, shifted_pitch_embed)
-                    pitch_error += pitch_loss(unshifted_audio_pitch_embed, pitch_embed)
 
                     stft_error = stft_loss(audio, unshifted_audio)
 

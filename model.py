@@ -163,8 +163,9 @@ class ConvNextAdaLNZeroBlock(nn.Module):
         self.adaln_modulation = nn.Sequential(nn.SiLU(), nn.Linear(128, channels * 6))
 
     def forward(self, x, pitch_shift):
+        modulated = self.adaln_modulation(pitch_shift)
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-            self.adaln_modulation(pitch_shift).chunk(6, dim=1)
+            modulated.chunk(6, dim=-1)
         )
         res = x
         x = x * scale_msa[:, :, None, None] + shift_msa[:, :, None, None]

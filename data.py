@@ -3,7 +3,7 @@ import soundfile
 import numpy as np
 
 class AudioDataset(Dataset):
-    def __init__(self, paths, samples=65024, test=False):
+    def __init__(self, paths, samples=97792, test=False):
         self.paths = paths
         self.samples = samples
         self.test = test
