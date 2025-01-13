@@ -138,118 +138,6 @@ class ConvNextBlock(nn.Module):
 
         return x + res
 
-
-class ConvNextAdaLNZeroBlock(nn.Module):
-    def __init__(self, channels, expansion=4, layer_scale_init=1e-6):
-        super().__init__()
-
-        self.dw_conv = nn.Conv2d(
-            channels, channels, kernel_size=7, padding=3, groups=channels
-        )
-
-        self.norm = nn.LayerNorm(channels)
-
-        self.pw_conv1 = nn.Linear(channels, channels * expansion)
-        self.pw_conv2 = nn.Linear(channels * expansion, channels)
-
-        self.act = nn.GELU()
-
-        self.gamma = (
-            nn.Parameter(torch.ones(channels) * layer_scale_init, requires_grad=True)
-            if layer_scale_init > 0
-            else None
-        )
-
-        self.adaln_modulation = nn.Sequential(nn.SiLU(), nn.Linear(128, channels * 6))
-
-    def forward(self, x, pitch_shift):
-        modulated = self.adaln_modulation(pitch_shift)
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
-            modulated.chunk(6, dim=-1)
-        )
-        res = x
-        x = x * scale_msa[:, :, None, None] + shift_msa[:, :, None, None]
-        x = self.dw_conv(x)
-        x = x.permute(0, 2, 3, 1).contiguous()
-        x = x * gate_msa[:, None, None, :]
-        x = self.norm(x)
-        x = x * scale_mlp[:, None, None, :] + shift_mlp[:, None, None, :]
-        x = self.pw_conv1(x)
-        x = self.act(x)
-        x = self.pw_conv2(x)
-        x = x * gate_mlp[:, None, None, :]
-
-        if self.gamma is not None:
-            x = x * self.gamma
-
-        x = x.permute(0, 3, 1, 2).contiguous()
-
-        return x + res
-
-# from k-diffusion, AdaRMSNorm:  
-def zero_init(layer):
-    nn.init.zeros_(layer.weight)
-    if layer.bias is not None:
-        nn.init.zeros_(layer.bias)
-    return layer
-
-from functools import reduce
-
-def rms_norm(x, scale, eps):
-    dtype = reduce(torch.promote_types, (x.dtype, scale.dtype, torch.float32))
-    mean_sq = torch.mean(x.to(dtype)**2, dim=-1, keepdim=True)
-    scale = scale.to(dtype) * torch.rsqrt(mean_sq + eps)
-    return x * scale.to(x.dtype)
-
-class AdaRMSNorm(nn.Module):
-    def __init__(self, features, cond_features, eps=1e-6):
-        super().__init__()
-        self.eps = eps
-        self.linear = zero_init(nn.Linear(cond_features, features, bias=False))
-
-    def extra_repr(self):
-        return f"eps={self.eps},"
-
-    def forward(self, x, cond):
-        return rms_norm(x, self.linear(cond)[:, None, None, :] + 1, self.eps)
-
-class ConvNextAdaRMSBlock(nn.Module):
-    def __init__(self, channels, expansion=4, layer_scale_init=1e-6):
-        super().__init__()
-
-        self.dw_conv = nn.Conv2d(
-            channels, channels, kernel_size=7, padding=3, groups=channels
-        )
-
-        self.norm = AdaRMSNorm(channels, 128)
-
-        self.pw_conv1 = nn.Linear(channels, channels * expansion)
-        self.pw_conv2 = nn.Linear(channels * expansion, channels)
-
-        self.act = nn.GELU()
-
-        self.gamma = (
-            nn.Parameter(torch.ones(channels) * layer_scale_init, requires_grad=True)
-            if layer_scale_init > 0
-            else None
-        )
-
-    def forward(self, x, pitch_shift):
-        res = x
-        x = self.dw_conv(x)
-        x = x.permute(0, 2, 3, 1).contiguous()
-        x = self.norm(x, pitch_shift)
-        x = self.pw_conv1(x)
-        x = self.act(x)
-        x = self.pw_conv2(x)
-
-        if self.gamma is not None:
-            x = x * self.gamma
-
-        x = x.permute(0, 3, 1, 2).contiguous()
-
-        return x + res
-
 class Encoder(nn.Module):
     def __init__(self, channels, blocks, factors, scale_vs_channels):
         super().__init__()
@@ -265,17 +153,14 @@ class Encoder(nn.Module):
                 )
             )
             for _ in range(blocks[i - 1]):
-                self.blocks.append(ConvNextAdaRMSBlock(channels[i]))
+                self.blocks.append(ConvNextBlock(channels[i]))
 
-    def forward(self, x, pitch_shift):
+    def forward(self, x):
         residuals = []
         for block in self.blocks:
             if isinstance(block, DownsampleWithSkip):
                 residuals.append(x)
-            if isinstance(block, ConvNextAdaRMSBlock):
-                x = block(x, pitch_shift)
-            else:
-                x = block(x)
+            x = block(x)
 
         return x, residuals
 
@@ -287,7 +172,7 @@ class Decoder(nn.Module):
         self.blocks = nn.ModuleList()
         for i in range(1, len(channels)):
             for _ in range(blocks[i - 1]):
-                self.blocks.append(ConvNextAdaRMSBlock(channels[i - 1]))
+                self.blocks.append(ConvNextBlock(channels[i - 1]))
             self.blocks.append(
                 UpsampleWithSkip(
                     channels[i - 1],
@@ -297,12 +182,9 @@ class Decoder(nn.Module):
                 )
             )
 
-    def forward(self, x, residuals, pitch_shift):
+    def forward(self, x, residuals):
         for block in self.blocks:
-            if isinstance(block, ConvNextAdaRMSBlock):
-                x = block(x, pitch_shift)
-            else:
-                x = block(x)
+            x = block(x)
             if isinstance(block, UpsampleWithSkip):
                 residual = residuals.pop()
                 x = x + residual
@@ -325,19 +207,9 @@ class UNet(nn.Module):
             channels[::-1], blocks[::-1], factors[::-1], scale_vs_channels[::-1]
         )
 
-        #self.timestep_embed = FourierFeatures(1, 128)
-        self.timestep_embed = nn.Sequential(
-            nn.Linear(1, 256),
-            nn.GELU(),
-            nn.Linear(256, 256),
-            nn.GELU(),
-            nn.Linear(256, 128),
-        )
-
-    def forward(self, x, pitch_shift=0):
-        pitch_embed = self.timestep_embed(pitch_shift)
-        x, residuals = self.encoder(x, pitch_embed)
-        x = self.decoder(x, residuals, pitch_embed)
+    def forward(self, x):
+        x, residuals = self.encoder(x)
+        x = self.decoder(x, residuals)
 
         return x
 
@@ -350,7 +222,7 @@ class AudioUNet(nn.Module):
         self.to_spec = T.Spectrogram(2046, 2046, 512, power=None)
         self.to_wav = T.InverseSpectrogram(2046, 2046, 512)
 
-    def forward(self, x, pitch_shift=0):
+    def forward(self, x):
         # calculate padding
         pad = 0
         if (x.shape[-1] + 512) % 8192 != 0:
@@ -361,7 +233,7 @@ class AudioUNet(nn.Module):
         x = torch.view_as_real(x)
         x = x.permute(0, 3, 1, 2)
 
-        y = self.autoenc(x, pitch_shift)
+        y = self.autoenc(x)
 
         y = y.permute(0, 2, 3, 1).contiguous()
         y = torch.view_as_complex(y)
@@ -380,12 +252,11 @@ if __name__ == "__main__":
     x = torch.randn(8, 65024)
     # 127*512, the spectrogram pads by 512 to 65536, giving exactly 1024x128 2D shape
     print(x.shape)
-    shift = torch.zeros(8, 1)
     from time import time
 
     with torch.no_grad():
         start = time()
-        y = model(x, shift)
+        y = model(x)
         end = time()
     print("Input shape", x.shape, "Output shape", y.shape)
     print("Took", end - start, "seconds")

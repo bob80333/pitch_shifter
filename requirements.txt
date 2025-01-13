@@ -4,4 +4,4 @@ numpy
 soundfile
 k_diffusion
 git+https://github.com/KellerJordan/Muon
-pesto-pitch
+python-stretch
