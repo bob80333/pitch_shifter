@@ -69,9 +69,9 @@ def main(args):
         loss.backward()
         optimizer.step()
 
-        writer.add_scalar("train/loss", loss, step)
+        writer.add_scalar("train/loss", loss, step+1)
 
-        if step % args.eval_every == 0:
+        if (step + 1) % args.eval_every == 0:
             model.eval()
             val_loss = 0
             with torch.no_grad():
@@ -102,16 +102,16 @@ def main(args):
                 total_val_loss /= i
                 total_shifted_loss /= i
                 
-                writer.add_scalar("val/loss", total_val_loss, step)
+                writer.add_scalar("val/loss", total_val_loss, step+1)
                 # baseline, if model output is worse than this, it's not useful
-                writer.add_scalar("val/shifted_loss", total_shifted_loss, step)
+                writer.add_scalar("val/shifted_loss", total_shifted_loss, step+1)
 
                 # save an example output
-                writer.add_audio("val/audio", audio[0], step, sample_rate=sr)
-                writer.add_audio("val/shifted_audio", shifted_audio[0], step, sample_rate=sr)
-                writer.add_audio("val/unshifted_audio", unshifted_audio[0], step, sample_rate=sr)
+                writer.add_audio("val/audio", audio[0], step+1, sample_rate=sr)
+                writer.add_audio("val/shifted_audio", shifted_audio[0], step+1, sample_rate=sr)
+                writer.add_audio("val/unshifted_audio", unshifted_audio[0], step+1, sample_rate=sr)
 
-            print(f"Step {step}, val_loss: {total_val_loss}")
+            print(f"Step {step+1}, val_loss: {total_val_loss}")
 
 
     
@@ -120,11 +120,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=5000)
-    argparser.add_argument("--eval_every", type=int, default=100)
-    argparser.add_argument("--batch_size", type=int, default=32)
-    argparser.add_argument("--n_workers", type=int, default=4)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output7" )
+    argparser.add_argument("--n_steps", type=int, default=20000)
+    argparser.add_argument("--eval_every", type=int, default=400)
+    argparser.add_argument("--batch_size", type=int, default=64)
+    argparser.add_argument("--n_workers", type=int, default=8)
+    argparser.add_argument("--save_dir", type=str, default="outputs/output10" )
 
     args = argparser.parse_args()
 
