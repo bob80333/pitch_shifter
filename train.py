@@ -15,6 +15,11 @@ sr = 48000
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 hop = sr // 200
 
+# performance tweaks
+torch.backends.cudnn.benchmark = True
+torch.backends.cuda.matmul.allow_tf32 = True
+
+
 def inf_train_generator(train_loader):
     while True:
         for data in train_loader:
@@ -39,7 +44,7 @@ def main(args):
 
     val_files = list(Path("data/val").rglob("*.flac"))
     print(f"Found {len(val_files)} validation files")
-    val_dataset = AudioDataset(val_files)
+    val_dataset = AudioDataset(val_files, test=True)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.n_workers, persistent_workers=True)
 
     stft_loss = MultiResolutionSTFTLoss(fft_sizes = [4096, 2048, 1024], hop_sizes = [480, 240, 120], win_lengths = [2400, 1200, 600], scale="mel", n_bins=128, sample_rate=sr, perceptual_weighting=True)
@@ -113,6 +118,8 @@ def main(args):
 
             print(f"Step {step+1}, val_loss: {total_val_loss}")
 
+            torch.save(model.state_dict(), os.path.join(args.save_dir, f"model_{step+1}.pt"))
+
 
     
 
@@ -120,11 +127,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=20000)
-    argparser.add_argument("--eval_every", type=int, default=400)
-    argparser.add_argument("--batch_size", type=int, default=64)
+    argparser.add_argument("--n_steps", type=int, default=10_000)
+    argparser.add_argument("--eval_every", type=int, default=1000)
+    argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=8)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output10" )
+    argparser.add_argument("--save_dir", type=str, default="outputs/output16" )
 
     args = argparser.parse_args()
 

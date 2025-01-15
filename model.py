@@ -197,10 +197,10 @@ class UNet(nn.Module):
         super().__init__()
 
         if channels is None:
-            channels = [2, 32, 128, 256]
-            blocks = [2, 2, 2]
-            factors = [4, 2, 2]
-            scale_vs_channels = [1, 1, 2]
+            channels = [2, 32, 128, 256, 512]
+            blocks = [2, 2, 3, 4]
+            factors = [4, 2, 2, 2]
+            scale_vs_channels = [1, 1, 2, 2]
 
         self.encoder = Encoder(channels, blocks, factors, scale_vs_channels)
         self.decoder = Decoder(

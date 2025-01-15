@@ -1,0 +1,13 @@
+just realized val dl not in test mode
+
+new runs for that
+bigger / deeper model better after moving to test mode
+larger batch size also better
+
+now let's try 2 tweaks:
+
+1. swap to l1 loss on waveform  (as the MDX model does for vocal isolation, and it does very well)
+2. remove the impossible frequencies.  e.g. if shifted up then down, top freqs are missing.  other direction we just lose fidelity, not all freqs.
+removing them for shifting up is important because then the model tries to predict missing freqs, as that is a lot of the loss and easy to do, but doesn't actually improve quality
+
+First, doing 2., as it is likely more important for quality.
