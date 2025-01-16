@@ -1,5 +1,5 @@
 import soundfile
-from model import AudioUNet
+from model_2d import AudioUNet
 import torch
 import numpy as np
 import python_stretch as ps

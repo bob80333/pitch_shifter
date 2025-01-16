@@ -6,7 +6,7 @@ import python_stretch as ps
 from torchaudio import functional as F
 
 class AudioDataset(Dataset):
-    def __init__(self, paths, samples=65024, test=False):
+    def __init__(self, paths, samples=48640, test=False):
         self.paths = paths
         self.samples = samples
         self.test = test
@@ -51,13 +51,16 @@ class AudioDataset(Dataset):
         self.stretch.setTransposeSemitones(-shift)
         shifted_audio = self.stretch.process(shifted_audio)[0]
 
+        shifted_audio = torch.tensor(shifted_audio).float()
+
         if shift > 0:
             # calculate lowpass filter cutoff frequency
             # 1 octave is a factor of 2 in frequency, 12 semitones is a factor of 2^(12/12) = 2
             # since we want 1/2 of the original frequency if we shift by 12, we use 2^(-shift/12)
             cutoff_freq = 2 ** (-shift / 12) * 24000 # 24 kHz is half of 48 kHz, so it's the Nyquist frequency
             # lowpass filter
-            shifted_audio = F.lowpass_biquad(shifted_audio, sample_rate=48_000, cutoff_freq=cutoff_freq)
-            audio = F.lowpass_biquad(audio, sample_rate=48_000, cutoff_freq=cutoff_freq)
+            for _ in range(10):
+                shifted_audio = F.lowpass_biquad(shifted_audio, sample_rate=48_000, cutoff_freq=cutoff_freq)
+                audio = F.lowpass_biquad(audio, sample_rate=48_000, cutoff_freq=cutoff_freq)
 
         return audio, shifted_audio
