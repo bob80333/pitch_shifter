@@ -1,6 +1,7 @@
 from muon import Muon
 import torch
 from model_2d import AudioUNet
+from model_1d import WavUNet
 from data import AudioDataset
 from torch.utils.data import DataLoader
 from pathlib import Path
@@ -9,7 +10,6 @@ from tqdm import trange
 from auraloss.freq import MultiResolutionSTFTLoss
 from torch.utils.tensorboard import SummaryWriter
 import os
-import cdpam
 import torchaudio.transforms as T
 
 
@@ -28,7 +28,7 @@ def inf_train_generator(train_loader):
             yield data
 
 def main(args):
-    model = AudioUNet()
+    model = WavUNet()
     model.to(device)
 
     # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
@@ -50,7 +50,7 @@ def main(args):
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.n_workers, persistent_workers=True)
 
     stft_loss = MultiResolutionSTFTLoss(fft_sizes = [4096, 2048, 1024], hop_sizes = [480, 240, 120], win_lengths = [2400, 1200, 600], scale="mel", n_bins=128, sample_rate=sr, perceptual_weighting=True)
-    l1_loss = torch.nn.L1Loss()
+    #l1_loss = torch.nn.L1Loss()
 
     #cdpam_loss = cdpam.CDPAM(dev='cuda:0')
 
@@ -69,12 +69,12 @@ def main(args):
         audio = audio.to(device)
         shifted_audio = shifted_audio.to(device)
 
-        # predict differences to fix the input audio
-        unshifted_audio = model(shifted_audio)
-
         # add channels dimension for losses calculation
         audio = audio.unsqueeze(1)
-        unshifted_audio = unshifted_audio.unsqueeze(1)
+        shifted_audio = shifted_audio.unsqueeze(1)
+
+        # predict differences to fix the input audio
+        unshifted_audio = model(shifted_audio)
 
         # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
         loss = stft_loss(unshifted_audio, audio)
@@ -98,14 +98,13 @@ def main(args):
                 for audio, shifted_audio in val_dataloader:
                     audio = audio.to(device)
                     shifted_audio = shifted_audio.to(device)
-                                        
-                    # remove pitch artifacts from shifted audio
-                    unshifted_audio = model(shifted_audio)
 
                     # add channels dimension for losses calculation
                     audio = audio.unsqueeze(1)
-                    unshifted_audio = unshifted_audio.unsqueeze(1)
                     shifted_audio = shifted_audio.unsqueeze(1)
+                                        
+                    # remove pitch artifacts from shifted audio
+                    unshifted_audio = model(shifted_audio)
 
                     # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
                     val_loss = stft_loss(unshifted_audio, audio)
@@ -143,7 +142,7 @@ if __name__ == "__main__":
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=8)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output22" )
+    argparser.add_argument("--save_dir", type=str, default="outputs/output24" )
 
     args = argparser.parse_args()
 
