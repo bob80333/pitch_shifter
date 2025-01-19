@@ -11,6 +11,9 @@ from auraloss.freq import MultiResolutionSTFTLoss
 from torch.utils.tensorboard import SummaryWriter
 import os
 import torchaudio.transforms as T
+from dac_loss import DACFeatureMatchingLoss
+from audiotools.metrics.spectral import MelSpectrogramLoss
+from audiotools.core.audio_signal import AudioSignal
 
 
 sr = 48000
@@ -56,6 +59,18 @@ def main(args):
 
     #resampler = T.Resample(48000, 22050).to(device)
 
+    #dac_loss = DACFeatureMatchingLoss(device)
+
+
+    # using setting from DAC base.yml:
+    # MelSpectrogramLoss.n_mels: [5, 10, 20, 40, 80, 160, 320]
+    # MelSpectrogramLoss.window_lengths: [32, 64, 128, 256, 512, 1024, 2048]
+    # MelSpectrogramLoss.mel_fmin: [0, 0, 0, 0, 0, 0, 0]
+    # MelSpectrogramLoss.mel_fmax: [null, null, null, null, null, null, null]
+    # MelSpectrogramLoss.pow: 1.0
+    # MelSpectrogramLoss.clamp_eps: 1.0e-5
+    # MelSpectrogramLoss.mag_weight: 0.0
+    melspec_loss = MelSpectrogramLoss(n_mels=[5, 10, 20, 40, 80, 160, 320], window_lengths=[32, 64, 128, 256, 512, 1024, 2048], mel_fmin=[0, 0, 0, 0, 0, 0, 0], mel_fmax=[None, None, None, None, None, None, None], pow=1.0, clamp_eps=1.0e-5, mag_weight=0.0)
 
     writer = SummaryWriter(args.save_dir)
 
@@ -77,11 +92,19 @@ def main(args):
         unshifted_audio = model(shifted_audio)
 
         # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
-        loss = stft_loss(unshifted_audio, audio)
+        #loss = stft_loss(unshifted_audio, audio)
 
         # loss = l1_loss(unshifted_audio, audio)
 
         #loss = cdpam_loss.forward(resampler(audio), resampler(unshifted_audio)).mean()
+
+        #loss = dac_loss(unshifted_audio, audio)
+
+        # make tensors AudioSignals for MelSpectrogramLoss (takes in tensors, so should preserve gradients)
+        audio = AudioSignal(audio, sr)
+        unshifted_audio = AudioSignal(unshifted_audio, sr)
+
+        loss = melspec_loss(unshifted_audio, audio)
 
         loss.backward()
         # grad clip
@@ -144,7 +167,7 @@ if __name__ == "__main__":
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=8)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output31" )
+    argparser.add_argument("--save_dir", type=str, default="outputs/output34" )
 
     args = argparser.parse_args()
 

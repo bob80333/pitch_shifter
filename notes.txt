@@ -141,7 +141,8 @@ worse
 looking at bigvgan paper, a few things to try
 1. gradient clipping:
 
-grad clip norm of 1e3, same as bigvgan paper uses, output31
+grad clip norm of 1e3, same as bigvgan paper uses, 
+output31
 
 maybe track grad norms to see whats typical?
 
@@ -159,5 +160,33 @@ Pros: Due to compression / reconstruction objective, tries to model the most per
 is a pretrained model
 can handle high sample rate (trained on 44.5khz, 48khz )
 
-
+output32
 new: dac_loss.py implementing DACFeatureMatchingLoss
+unfortunately using all layers + the 49152 samples destroyed memory
+reducing to after just the first EncoderBlock (unfortunately first encoder block is without any downsampling so memory usage quite bad) and 16384 samples makes it fit in <12GB memory
+given model was using <5-6GB before and went to using >24GB, something like 75% of memory use here is from the DAC loss :/
+
+promising, had a different sound to it than spec loss
+but plataeued and val spec loss increased then plataeued, didn't decrease
+output33
+trying multiple encoder blocks, may be able to fit in memory
+can only fit 2 blocks
+output34
+new idea, feature match loss after every residual block
+just use first block
+
+quality wise they sound softer, less of the harsh robotic tone that the pitch shifting causes, but with weird artifacts
+let's try this with the multi scale stft loss, so both losses at once
+using just first block with feat matching loss after every residual
+the scale of the stft loss is much larger (100x) than the scale of the feature matching loss, 
+initially trying with no scaling of either loss to see if the strong stft loss can prevent the artifacts from the feature matching loss
+output35
+
+prevents the artifacts, but doesn't really sound better
+
+let's try the multiscale mel spec loss from the DAC paper
+they note that you need different # mel bins to prevent "holes" in the spectrogram
+and that the shorter window lengths are important for transients
+so this may help
+
+output36

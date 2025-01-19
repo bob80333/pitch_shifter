@@ -6,7 +6,7 @@ import python_stretch as ps
 from torchaudio import functional as F
 
 class AudioDataset(Dataset):
-    def __init__(self, paths, samples=49152, test=False):
+    def __init__(self, paths, samples=16384, test=False):
         self.paths = paths
         self.samples = samples
         self.test = test
