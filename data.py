@@ -19,6 +19,8 @@ class AudioDataset(Dataset):
         path = self.paths[idx]
         audio, sr = soundfile.read(path)
 
+        audio = audio.astype(np.float32) # convert to float32
+
         # can't pickle Stretch object, so create it on first use
         if self.stretch is None:
             self.stretch = ps.Signalsmith.Stretch()
@@ -29,15 +31,13 @@ class AudioDataset(Dataset):
             audio = np.pad(audio, (0, self.samples - len(audio) + 1))
 
         if self.test:
-            # return middle 65024 samples
+            # return middle group of samples
             start = len(audio) // 2 - self.samples // 2
             audio = audio[start : start + self.samples]
         else:
-            # return random 65024 samples
+            # return random group of samples
             start = np.random.randint(0, len(audio) - self.samples)
             audio = audio[start : start + self.samples]
-
-        audio = torch.tensor(audio).float()
 
         # do pitch shift augmentation
         # random pitch shift between -12 and 12 semitones (-1 octave to +1 octave)
@@ -51,7 +51,10 @@ class AudioDataset(Dataset):
         self.stretch.setTransposeSemitones(-shift)
         shifted_audio = self.stretch.process(shifted_audio)[0]
 
-        shifted_audio = torch.tensor(shifted_audio).float()
+        audio = torch.from_numpy(audio)
+        audio = audio.float()
+        shifted_audio = torch.from_numpy(shifted_audio)
+        shifted_audio = shifted_audio.float()
 
         if shift > 0:
             # calculate lowpass filter cutoff frequency
@@ -64,3 +67,19 @@ class AudioDataset(Dataset):
                 audio = F.lowpass_biquad(audio, sample_rate=48_000, cutoff_freq=cutoff_freq)
 
         return audio, shifted_audio
+    
+if __name__ == "__main__":
+    from pathlib import Path
+    from torch.utils.data import DataLoader
+    train_files = list(Path("data/val_wav").rglob("*.wav"))
+    print(f"Found {len(train_files)} training files")
+    train_dataset = AudioDataset(train_files)
+    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, drop_last=True, num_workers=0)
+    from tqdm import tqdm
+
+    i = 0
+    for audio, shifted_audio in tqdm(train_dataloader):
+        #print(audio.shape, shifted_audio.shape)
+        i += 1
+
+    print(i)

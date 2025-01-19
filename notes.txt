@@ -40,6 +40,7 @@ maybe it will be better?
 
 worse, definitely worse.
 
+output22:
 back to original method, reduce sequence length to 3/4 original, so 48640 instead of 65024, gives a little speedup and still processes a decent bit of audio
 up the # of lowpass filters to 10 from 6, change to using a for loop (should have done that from the beginning)
 back to batch size 32
@@ -47,4 +48,116 @@ back to batch size 32
 not really any better.
 
 Let's move from spectrogram models to trying out waveform models
+output23:
+much faster
+bottlenecked completely by data loading
+lower memory usage
+easier to deal with padding for inference due to no spec -> inv spec
+similar setup to spectrogram model but made convs 1d
 
+model config:
+channels = [1, 8, 64, 256, 512]
+blocks = [2, 2, 3, 4]
+factors = [8, 8, 4, 2]
+scale_vs_channels = [1, 1, 1, 1]
+
+not too much worse than spectrogram model on spectrogram val loss
+(0.515 vs 0.491)
+audio sounds pretty similar, no real improvement in sound
+
+output24:
+new change: ConvNext blocks have convs of size 7.  7x7 works for images, but 7x7 = 49, so conv of 41 is a similar prime # conv size for 1d
+should allow model to see higher freqs and move information along the sequence faster
+due to convnext structure this doesn't add many params (only +~200k on a ~21.5M param model)
+similarly fast training (bottlenecked by data loading)
+
+slightly worse results
+
+output25:
+since model is so fast and results are still worse than spec model,
+let's add more blocks
+blocks = [4, 4, 4, 4]
+now all depths have same # of blocks
+keeping the larger kernel for now, not clear why it would be worse esp for waveform audio model
+e.g. hifigan does good with a kernel of 11 with 11 dilation giving huge effective kernel
+
+training is slower but still somewhat dataloading bound
+still low memory use, <5GB
+
+we see increase in val loss after only 5k steps, and little to no progress after 1k steps
+maybe the issue is too high of lr?
+
+reduce lr: muon from 2e-3 to 1e-3, adamw from 3e-4 to 1e-4
+
+results noticably worse
+
+increase lr?
+output27
+muon to 5e-3, adamw to 5e-4
+much better results
+at 5k steps achieves val loss of 0.508, which is better than any other wav model attempt after 10k steps (next best @ 10k steps, 0.5153, output23)
+
+new best result, beating even spectrogram model in this setting.
+
+output28
+let's try raising lr 2x:
+muon to 1e-2, adamw to 1e-3
+
+worse.
+
+more depth:
+output29
+from:
+channels = [1, 8, 64, 256, 512]
+blocks = [4, 4, 4, 4]
+factors = [8, 8, 4, 2]
+scale_vs_channels = [1, 1, 1, 1]
+to:
+channels = [1, 8, 32, 128, 256, 512]
+blocks = [4, 4, 4, 4, 4]
+factors = [8, 4, 4, 2, 2]
+scale_vs_channels = [1, 1, 1, 1, 1]
+
+model a little bigger, a little more memory, <6GB
+
+less depth:
+
+output30:
+from:
+channels = [1, 8, 64, 256, 512]
+blocks = [4, 4, 4, 4]
+factors = [8, 8, 4, 2]
+scale_vs_channels = [1, 1, 1, 1]
+to:
+channels = [1, 8, 64, 128, 256]
+blocks = [4, 4, 4, 4]
+factors = [8, 8, 2, 2]
+scale_vs_channels = [1, 1, 1, 1]
+
+much smaller (from ~22M params to ~6M params)
+faster
+worse
+
+looking at bigvgan paper, a few things to try
+1. gradient clipping:
+
+grad clip norm of 1e3, same as bigvgan paper uses, output31
+
+maybe track grad norms to see whats typical?
+
+very similar results
+makes sense, model wasn't unstable. so it didn't really have much of an effect
+model val loss was monotonically decreasing though, so that's nice
+
+looking at DAC (neural audio codec) paper, they do various losses, a spectrogram loss, feature matching, etc
+the GAN approach is tempting, it has been proven to give great results in audio
+but, the real idea is from melgan, multi level feature matching loss on discriminator.
+but training discriminator is expensive and takes 1-2 MILLION steps to converge
+
+instead, let's use some of the encoding layers from a neural codec like DAC or EnCodec.
+Pros: Due to compression / reconstruction objective, tries to model the most perceptually relevant parts of the signal already
+is a pretrained model
+can handle high sample rate (trained on 44.5khz, 48khz )
+
+
+new: dac_loss.py implementing DACFeatureMatchingLoss

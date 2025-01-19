@@ -36,8 +36,8 @@ def main(args):
     # Find everything else -- these will be optimized by AdamW
     adamw_params = [p for p in model.parameters() if p.ndim < 2]
     # Create the optimizer
-    optimizer = Muon(muon_params, lr=2e-3, momentum=0.95,
-                    adamw_params=adamw_params, adamw_lr=3e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
+    optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
+                    adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
 
     train_files = list(Path("data/train").rglob("*.flac"))
     print(f"Found {len(train_files)} training files")
@@ -84,6 +84,8 @@ def main(args):
         #loss = cdpam_loss.forward(resampler(audio), resampler(unshifted_audio)).mean()
 
         loss.backward()
+        # grad clip
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1e3)
         optimizer.step()
 
         writer.add_scalar("train/loss", loss, step+1)
@@ -142,7 +144,7 @@ if __name__ == "__main__":
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=8)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output24" )
+    argparser.add_argument("--save_dir", type=str, default="outputs/output31" )
 
     args = argparser.parse_args()
 
