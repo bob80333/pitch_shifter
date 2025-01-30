@@ -2,7 +2,7 @@ from muon import Muon
 import torch
 from model_2d import AudioUNet
 from model_1d import WavUNet
-from data import AudioDataset
+from data import AudioDataset, PreShiftedAudioDataset
 from torch.utils.data import DataLoader
 from pathlib import Path
 import argparse
@@ -14,7 +14,7 @@ import torchaudio.transforms as T
 from dac_loss import DACFeatureMatchingLoss
 from audiotools.metrics.spectral import MelSpectrogramLoss
 from audiotools.core.audio_signal import AudioSignal
-from heavyball import ForeachPSGDKron
+from heavyball import ForeachPSGDKron, ForeachSOAP
 import heavyball
 
 
@@ -36,26 +36,28 @@ def main(args):
     model = WavUNet()
     model.to(device)
 
-    # # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
-    # muon_params = [p for p in model.parameters() if p.ndim >= 2]
-    # # Find everything else -- these will be optimized by AdamW
-    # adamw_params = [p for p in model.parameters() if p.ndim < 2]
-    # # Create the optimizer
-    # optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
-    #                 adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
+    # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
+    muon_params = [p for p in model.parameters() if p.ndim >= 2]
+    # Find everything else -- these will be optimized by AdamW
+    adamw_params = [p for p in model.parameters() if p.ndim < 2]
+    # Create the optimizer
+    optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
+                    adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
 
     heavyball.utils.compile_mode = None # disable triton compiling on windows
 
-    optimizer = ForeachPSGDKron(model.parameters(), lr=3e-4, beta = 0.95, weight_decay=0.01)
+    #optimizer = ForeachPSGDKron(model.parameters(), lr=3e-4, beta = 0.95, weight_decay=0.01)
 
-    train_files = list(Path("data/train").rglob("*.flac"))
+    #optimizer = ForeachSOAP(model.parameters(), lr=5e-4, betas=(0.9, 0.95), weight_decay=0.01)
+
+    train_files = list(Path("data/train_processed").rglob("*.wav"))
     print(f"Found {len(train_files)} training files")
-    train_dataset = AudioDataset(train_files)
+    train_dataset = PreShiftedAudioDataset(train_files)
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=args.n_workers, persistent_workers=True)
 
-    val_files = list(Path("data/val").rglob("*.flac"))
+    val_files = list(Path("data/val_processed").rglob("*.wav"))
     print(f"Found {len(val_files)} validation files")
-    val_dataset = AudioDataset(val_files, test=True)
+    val_dataset = PreShiftedAudioDataset(val_files, test=True)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.n_workers, persistent_workers=True)
 
     stft_loss = MultiResolutionSTFTLoss(fft_sizes = [4096, 2048, 1024], hop_sizes = [480, 240, 120], win_lengths = [2400, 1200, 600], scale="mel", n_bins=128, sample_rate=sr, perceptual_weighting=True)
@@ -169,11 +171,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=10_000)
-    argparser.add_argument("--eval_every", type=int, default=1000)
+    argparser.add_argument("--n_steps", type=int, default=20_000)
+    argparser.add_argument("--eval_every", type=int, default=2000)
     argparser.add_argument("--batch_size", type=int, default=32)
-    argparser.add_argument("--n_workers", type=int, default=8)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output43" )
+    argparser.add_argument("--n_workers", type=int, default=4)
+    argparser.add_argument("--save_dir", type=str, default="outputs/output44" )
 
     args = argparser.parse_args()
 

@@ -84,11 +84,14 @@ class PreShiftedAudioDataset(Dataset):
         return len(self.preprocessed_files)
 
     def __getitem__(self, idx):
-        stretched = self.preprocessed_files[idx]
-        original = stretched[:-5] + "0.wav"
-
-        audio, sr = soundfile.read(original)
-        shifted_audio, sr = soundfile.read(stretched)
+        stretched = str(self.preprocessed_files[idx])
+        original = stretched[:stretched.rfind("_")] + "_0.wav"
+        try:
+            audio, sr = soundfile.read(original)
+            shifted_audio, sr = soundfile.read(stretched)
+        except:
+            print(f"Error reading {original} or {stretched}")
+            return None, None
 
         audio = audio.astype(np.float32) # convert to float32
         shifted_audio = shifted_audio.astype(np.float32) # convert to float32

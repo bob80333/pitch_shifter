@@ -201,7 +201,7 @@ class WavUNet(nn.Module):
 
         if channels is None:
             channels = [1, 8, 64, 256, 512]
-            blocks = [4, 4, 4, 4]
+            blocks = [3, 4, 4, 4]
             factors = [8, 8, 4, 2]
             scale_vs_channels = [1, 1, 1, 1]
 

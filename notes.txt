@@ -222,4 +222,36 @@ initially promising results, but falls behind in the 2nd half and val loss goes 
 output42
 
 default of 0.9, let's try 0.95
+ends up very similar to the others tbh
 output43
+
+new dataset setup, preprocess data instead of on the fly shifting
+to reduce disk usage, reduce # of shifts
+do every other semitone, -12, -10, ..., 10, 12
+halves train set from ~154GB to ~77gb
+also makes preprocessing 2x faster
+preprocessing does 2x the number of lowpass filters since might as well (more filters = faster / better rolloff / smaller transition from allowed to blocked) (and they are not the slow part anyways)
+
+have to redo comparisons
+
+Muon:
+Muon(muon_params, lr=5e-3, momentum=0.95,
+                 adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
+
+also due to faster dataloading will increase # of train steps to 20k
+(went from ~2.6it/s just loading data with 2 workers to almost 40it/s just loading data)
+finally reduced model first level to only 3 blocks intead of 4 to try to speed it up a bit
+
+output44
+
+PSGD:
+
+ForeachPSGDKron(model.parameters(), lr=3e-4, beta = 0.95, weight_decay=0.01)
+
+output45
+
+Let's try out the SOAP optimizer.  as a 2nd order optimizer its supposed to be quite good
+use adam settings:
+lr 5e-4, betas = 0.9, 0.95
+output46
+
