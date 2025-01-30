@@ -190,3 +190,36 @@ and that the shorter window lengths are important for transients
 so this may help
 
 output36
+
+maybe? idk hard to tell with short audios
+
+let's try same length as before the DACFeatureMatchingLoss, 16384*3 samples
+
+output37
+
+muon is supposed to have worse later convergence, let's try out this PSGD optimizer
+
+gonna have to try a few things to tune hparams
+noticably slower, probably due to not compiling (windows moment)
+
+lots of loss spikes after like 1k steps with lr of 1e-3
+output38
+
+trying 3e-4 lr
+bit of a slow start, and stalls out later
+output39
+trying 5e-4 lr
+worse overall, loss spikes later
+output40
+maybe lower lr?
+1e-4
+ends up worse than other lrs, but monotonically decreasing val loss at least
+output41
+
+back to 3e-4, try out different momentum
+default was 0.9, let's try 0.8
+initially promising results, but falls behind in the 2nd half and val loss goes up and down later on
+output42
+
+default of 0.9, let's try 0.95
+output43

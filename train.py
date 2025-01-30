@@ -14,6 +14,8 @@ import torchaudio.transforms as T
 from dac_loss import DACFeatureMatchingLoss
 from audiotools.metrics.spectral import MelSpectrogramLoss
 from audiotools.core.audio_signal import AudioSignal
+from heavyball import ForeachPSGDKron
+import heavyball
 
 
 sr = 48000
@@ -34,13 +36,17 @@ def main(args):
     model = WavUNet()
     model.to(device)
 
-    # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
-    muon_params = [p for p in model.parameters() if p.ndim >= 2]
-    # Find everything else -- these will be optimized by AdamW
-    adamw_params = [p for p in model.parameters() if p.ndim < 2]
-    # Create the optimizer
-    optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
-                    adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
+    # # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
+    # muon_params = [p for p in model.parameters() if p.ndim >= 2]
+    # # Find everything else -- these will be optimized by AdamW
+    # adamw_params = [p for p in model.parameters() if p.ndim < 2]
+    # # Create the optimizer
+    # optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
+    #                 adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
+
+    heavyball.utils.compile_mode = None # disable triton compiling on windows
+
+    optimizer = ForeachPSGDKron(model.parameters(), lr=3e-4, beta = 0.95, weight_decay=0.01)
 
     train_files = list(Path("data/train").rglob("*.flac"))
     print(f"Found {len(train_files)} training files")
@@ -167,7 +173,7 @@ if __name__ == "__main__":
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=8)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output34" )
+    argparser.add_argument("--save_dir", type=str, default="outputs/output43" )
 
     args = argparser.parse_args()
 

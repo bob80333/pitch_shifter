@@ -6,7 +6,7 @@ import python_stretch as ps
 from torchaudio import functional as F
 
 class AudioDataset(Dataset):
-    def __init__(self, paths, samples=16384, test=False):
+    def __init__(self, paths, samples=16384*3, test=False):
         self.paths = paths
         self.samples = samples
         self.test = test
@@ -46,6 +46,7 @@ class AudioDataset(Dataset):
         else:
             shift = np.random.randint(-12, 13)
         # shift audio up and back down to keep same pitch but introduce pitch shifting artifacts
+        #shifted_audio = audio.copy()
         self.stretch.setTransposeSemitones(shift)
         shifted_audio = self.stretch.process(audio[None, :])
         self.stretch.setTransposeSemitones(-shift)
@@ -68,13 +69,55 @@ class AudioDataset(Dataset):
 
         return audio, shifted_audio
     
+class PreShiftedAudioDataset(Dataset):
+    def __init__(self, preprocessed_files, samples=16384*3, test=False):
+        self.preprocessed_files = preprocessed_files
+
+        if test:
+            # only use files that were shifted up 1 octave for testing
+            self.preprocessed_files = [str(x) for x in self.preprocessed_files if "shifted_12" in str(x)]
+        self.samples = samples
+        self.test = test
+        self.stretch = None # mono audio, 48 kHz
+
+    def __len__(self):
+        return len(self.preprocessed_files)
+
+    def __getitem__(self, idx):
+        stretched = self.preprocessed_files[idx]
+        original = stretched[:-5] + "0.wav"
+
+        audio, sr = soundfile.read(original)
+        shifted_audio, sr = soundfile.read(stretched)
+
+        audio = audio.astype(np.float32) # convert to float32
+        shifted_audio = shifted_audio.astype(np.float32) # convert to float32
+
+        if self.test:
+            # return middle group of samples
+            start = len(audio) // 2 - self.samples // 2
+            audio = audio[start : start + self.samples]
+            shifted_audio = shifted_audio[start : start + self.samples]
+        else:
+            # return random group of samples
+            start = np.random.randint(0, len(audio) - self.samples)
+            audio = audio[start : start + self.samples]
+            shifted_audio = shifted_audio[start : start + self.samples]
+
+        audio = torch.from_numpy(audio)
+        audio = audio.float()
+        shifted_audio = torch.from_numpy(shifted_audio)
+        shifted_audio = shifted_audio.float()
+
+        return audio, shifted_audio
+    
 if __name__ == "__main__":
     from pathlib import Path
     from torch.utils.data import DataLoader
-    train_files = list(Path("data/val_wav").rglob("*.wav"))
+    train_files = list(Path("data/val_processed").rglob("*.wav"))
     print(f"Found {len(train_files)} training files")
-    train_dataset = AudioDataset(train_files)
-    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, drop_last=True, num_workers=0)
+    train_dataset = PreShiftedAudioDataset(train_files, test=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, drop_last=True, num_workers=2)
     from tqdm import tqdm
 
     i = 0
