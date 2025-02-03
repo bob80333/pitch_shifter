@@ -8,8 +8,8 @@ import python_stretch as ps
 from torchaudio import functional as F
 import os
 
-in_folder = "data\\val"
-out_folder = "data\\val_processed"
+in_folder = "data\\train"
+out_folder = "data\\train_processed"
 
 files = [str(x.absolute()) for x in Path(in_folder).rglob("*.flac")]
 
@@ -28,22 +28,28 @@ def process_file(file, in_folder=in_folder, out_folder=out_folder):
     audio, sr = sf.read(file)
     audio = audio.astype(np.float32) # convert to float32
 
-    for shift in range(-12, 13, 2):
+    # only deal with large shifts for now
+    shift = [-12, -11, -10, 10, 11, 12]
+    for shift in range(0, 13, 2):
         stretch.setTransposeSemitones(shift)
-
-        shifted_audio = stretch.process(audio[None, :])[0]
-
-        # calculate lowpass
-        if shift > 0:
-            shifted_audio = torch.from_numpy(shifted_audio)
-            # calculate lowpass filter cutoff frequency
-            cutoff_freq = 2 ** (-shift / 12) * 24000 # 24 kHz is half of 48 kHz, so it's the Nyquist frequency
-            for _ in range(20):
-                shifted_audio = F.lowpass_biquad(shifted_audio, sr, cutoff_freq)
-            shifted_audio = shifted_audio.numpy()
+        shifted_audio = stretch.process(audio[None, :])
+        stretch.setTransposeSemitones(-shift)
+        shifted_audio = stretch.process(shifted_audio)[0]
 
         # save the audio file
         sf.write(new_filename.replace(".flac", f"_shifted_{shift}.wav"), shifted_audio, sr)
+
+        audio_lowpass = audio.copy()
+        # calculate lowpass
+        if shift > 0:
+            audio_lowpass = torch.from_numpy(audio_lowpass)
+            # calculate lowpass filter cutoff frequency
+            cutoff_freq = 2 ** (-shift / 12) * 24000 # 24 kHz is half of 48 kHz, so it's the Nyquist frequency
+            for _ in range(20):
+                audio_lowpass = F.lowpass_biquad(audio_lowpass, sr, cutoff_freq)
+            audio_lowpass = shifted_audio.numpy()
+
+        sf.write(new_filename.replace(".flac", f"_shifted_{shift}_baseline.wav"), audio, sr)
 
 # multiprocessing
 

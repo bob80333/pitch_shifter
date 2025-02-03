@@ -227,9 +227,10 @@ output43
 
 new dataset setup, preprocess data instead of on the fly shifting
 to reduce disk usage, reduce # of shifts
-do every other semitone, -12, -10, ..., 10, 12
-halves train set from ~154GB to ~77gb
-also makes preprocessing 2x faster
+# only deal with large shifts for now
+shift = [-12, -11, -10, 10, 11, 12]
+the largest shifts are the ones we care about most anyways
+since they are the ones that have the most artifacts
 preprocessing does 2x the number of lowpass filters since might as well (more filters = faster / better rolloff / smaller transition from allowed to blocked) (and they are not the slow part anyways)
 
 have to redo comparisons
@@ -254,4 +255,71 @@ Let's try out the SOAP optimizer.  as a 2nd order optimizer its supposed to be q
 use adam settings:
 lr 5e-4, betas = 0.9, 0.95
 output46
+
+Let's try out plain old AdamW, to compare against all these other optimizers
+lr 5e-4, betas = 0.9, 0.95
+output47
+
+AdamW and SOAP underperformed vs Muon & PSGD significantly
+
+PSGD underperformed a little
+
+AdamW lr may be incorrect
+lets try increasing it (SOAP is slower so use AdamW to tune first)
+
+AdamW lr 1e-3
+much better, results got much closer to psgd / muon
+output48
+
+AdamW lr 2e-3
+similar results but faster beginning
+output49
+
+AdamW lr 5e-3
+immediate and constant loss explosions
+deleted run since no useful information
+
+will use 1e-3 as adam lr
+
+let's try to tune muon a bit more now with new adam lr and set muon to 10x adam lr
+so muon from 5e-3 to 1e-2
+
+optimizer = Muon(muon_params, lr=1e-2, momentum=0.95,
+                adamw_params=adamw_params, adamw_lr=1e-3, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
+
+much better, beats all previous runs by 6k steps / 20k
+output50
+
+let's try SOAP with new lr 1e-3
+
+does OK
+massive loss spike ~12k-13k steps in
+stalls out for a while
+gets a nice improvement in val loss in the last 2k steps, but too late
+although does manage to beat SOAP with lower lr at the very end
+output51
+
+let's try PSGD with higher lr, all optimizers are doing better with higher lr with new dataset setup
+
+lr = 1e-3
+
+loss explosion pretty quickly
+
+lr = 5e-4?
+basically same result as 3e-4 lr
+output52
+
+OK, let's try much longer training runs.
+AdamW, 100k steps
+output53
+
+Muon
+output54
+
+PSGD
+output55
+
+just realized that the audio isn't getting properly low-passed for pitch shifted baseline
+
+
 

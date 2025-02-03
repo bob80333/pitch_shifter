@@ -71,7 +71,9 @@ class AudioDataset(Dataset):
     
 class PreShiftedAudioDataset(Dataset):
     def __init__(self, preprocessed_files, samples=16384*3, test=False):
-        self.preprocessed_files = preprocessed_files
+        
+        # keep only files that were shifted
+        self.preprocessed_files = [str(x) for x in preprocessed_files if "baseline" not in str(x)]
 
         if test:
             # only use files that were shifted up 1 octave for testing
@@ -84,13 +86,13 @@ class PreShiftedAudioDataset(Dataset):
         return len(self.preprocessed_files)
 
     def __getitem__(self, idx):
-        stretched = str(self.preprocessed_files[idx])
-        original = stretched[:stretched.rfind("_")] + "_0.wav"
+        shifted_file = self.preprocessed_files[idx]
+        original_file = shifted_file.replace(".wav", "_baseline.wav")
         try:
-            audio, sr = soundfile.read(original)
-            shifted_audio, sr = soundfile.read(stretched)
+            audio, sr = soundfile.read(original_file)
+            shifted_audio, sr = soundfile.read(shifted_file)
         except:
-            print(f"Error reading {original} or {stretched}")
+            print(f"Error reading {original_file} or {shifted_file}")
             return None, None
 
         audio = audio.astype(np.float32) # convert to float32

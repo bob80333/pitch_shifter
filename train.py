@@ -37,18 +37,20 @@ def main(args):
     model.to(device)
 
     # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
-    muon_params = [p for p in model.parameters() if p.ndim >= 2]
-    # Find everything else -- these will be optimized by AdamW
-    adamw_params = [p for p in model.parameters() if p.ndim < 2]
-    # Create the optimizer
-    optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
-                    adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
+    # muon_params = [p for p in model.parameters() if p.ndim >= 2]
+    # # Find everything else -- these will be optimized by AdamW
+    # adamw_params = [p for p in model.parameters() if p.ndim < 2]
+    # # Create the optimizer
+    # optimizer = Muon(muon_params, lr=1e-2, momentum=0.95,
+    #                 adamw_params=adamw_params, adamw_lr=1e-3, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
 
     heavyball.utils.compile_mode = None # disable triton compiling on windows
 
-    #optimizer = ForeachPSGDKron(model.parameters(), lr=3e-4, beta = 0.95, weight_decay=0.01)
+    optimizer = ForeachPSGDKron(model.parameters(), lr=5e-4, beta = 0.95, weight_decay=0.01)
 
-    #optimizer = ForeachSOAP(model.parameters(), lr=5e-4, betas=(0.9, 0.95), weight_decay=0.01)
+    #optimizer = ForeachSOAP(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
+
+    #optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
 
     train_files = list(Path("data/train_processed").rglob("*.wav"))
     print(f"Found {len(train_files)} training files")
@@ -115,8 +117,9 @@ def main(args):
         loss = melspec_loss(unshifted_audio, audio)
 
         loss.backward()
-        # grad clip
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1e3)
+        # log / clip grad norm
+        writer.add_scalar("train/grad_norm", torch.nn.utils.clip_grad_norm_(model.parameters(), 1e3).item(), step+1)
+
         optimizer.step()
 
         writer.add_scalar("train/loss", loss, step+1)
@@ -171,11 +174,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=20_000)
-    argparser.add_argument("--eval_every", type=int, default=2000)
+    argparser.add_argument("--n_steps", type=int, default=100_000)
+    argparser.add_argument("--eval_every", type=int, default=5000)
     argparser.add_argument("--batch_size", type=int, default=32)
-    argparser.add_argument("--n_workers", type=int, default=4)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output44" )
+    argparser.add_argument("--n_workers", type=int, default=6)
+    argparser.add_argument("--save_dir", type=str, default="outputs/output55" )
 
     args = argparser.parse_args()
 
