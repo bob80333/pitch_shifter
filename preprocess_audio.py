@@ -8,8 +8,8 @@ import python_stretch as ps
 from torchaudio import functional as F
 import os
 
-in_folder = "data\\train"
-out_folder = "data\\train_processed"
+in_folder = "data\\val"
+out_folder = "data\\val_processed"
 
 files = [str(x.absolute()) for x in Path(in_folder).rglob("*.flac")]
 
@@ -29,8 +29,8 @@ def process_file(file, in_folder=in_folder, out_folder=out_folder):
     audio = audio.astype(np.float32) # convert to float32
 
     # only deal with large shifts for now
-    shift = [-12, -11, -10, 10, 11, 12]
-    for shift in range(0, 13, 2):
+    shifts = [-12, -10, 10, 12]
+    for shift in shifts:
         stretch.setTransposeSemitones(shift)
         shifted_audio = stretch.process(audio[None, :])
         stretch.setTransposeSemitones(-shift)
@@ -47,9 +47,9 @@ def process_file(file, in_folder=in_folder, out_folder=out_folder):
             cutoff_freq = 2 ** (-shift / 12) * 24000 # 24 kHz is half of 48 kHz, so it's the Nyquist frequency
             for _ in range(20):
                 audio_lowpass = F.lowpass_biquad(audio_lowpass, sr, cutoff_freq)
-            audio_lowpass = shifted_audio.numpy()
+            audio_lowpass = audio_lowpass.numpy()
 
-        sf.write(new_filename.replace(".flac", f"_shifted_{shift}_baseline.wav"), audio, sr)
+        sf.write(new_filename.replace(".flac", f"_shifted_{shift}_baseline.wav"), audio_lowpass, sr)
 
 # multiprocessing
 

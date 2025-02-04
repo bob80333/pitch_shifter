@@ -16,6 +16,8 @@ from audiotools.metrics.spectral import MelSpectrogramLoss
 from audiotools.core.audio_signal import AudioSignal
 from heavyball import ForeachPSGDKron, ForeachSOAP
 import heavyball
+import numpy as np
+import random
 
 
 sr = 48000
@@ -26,6 +28,12 @@ hop = sr // 200
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
 
+# set seed for reproducibility
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
 
 def inf_train_generator(train_loader):
     while True:
@@ -33,20 +41,30 @@ def inf_train_generator(train_loader):
             yield data
 
 def main(args):
+
+
+    # set seed for reproducibility
+    torch.manual_seed(0)
+    np.random.seed(0)
+    random.seed(0)
+    g = torch.Generator()
+    g.manual_seed(0)
+
+
     model = WavUNet()
     model.to(device)
 
     # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
-    # muon_params = [p for p in model.parameters() if p.ndim >= 2]
-    # # Find everything else -- these will be optimized by AdamW
-    # adamw_params = [p for p in model.parameters() if p.ndim < 2]
-    # # Create the optimizer
-    # optimizer = Muon(muon_params, lr=1e-2, momentum=0.95,
-    #                 adamw_params=adamw_params, adamw_lr=1e-3, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
+    muon_params = [p for p in model.parameters() if p.ndim >= 2]
+    # Find everything else -- these will be optimized by AdamW
+    adamw_params = [p for p in model.parameters() if p.ndim < 2]
+    # Create the optimizer
+    optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
+                    adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
 
     heavyball.utils.compile_mode = None # disable triton compiling on windows
 
-    optimizer = ForeachPSGDKron(model.parameters(), lr=5e-4, beta = 0.95, weight_decay=0.01)
+    #optimizer = ForeachPSGDKron(model.parameters(), lr=5e-4, beta = 0.95, weight_decay=0.01)
 
     #optimizer = ForeachSOAP(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
 
@@ -55,12 +73,12 @@ def main(args):
     train_files = list(Path("data/train_processed").rglob("*.wav"))
     print(f"Found {len(train_files)} training files")
     train_dataset = PreShiftedAudioDataset(train_files)
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=args.n_workers, persistent_workers=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
 
     val_files = list(Path("data/val_processed").rglob("*.wav"))
     print(f"Found {len(val_files)} validation files")
     val_dataset = PreShiftedAudioDataset(val_files, test=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.n_workers, persistent_workers=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
 
     stft_loss = MultiResolutionSTFTLoss(fft_sizes = [4096, 2048, 1024], hop_sizes = [480, 240, 120], win_lengths = [2400, 1200, 600], scale="mel", n_bins=128, sample_rate=sr, perceptual_weighting=True)
     #l1_loss = torch.nn.L1Loss()
@@ -174,11 +192,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=100_000)
-    argparser.add_argument("--eval_every", type=int, default=5000)
-    argparser.add_argument("--batch_size", type=int, default=32)
+    argparser.add_argument("--n_steps", type=int, default=10_000)
+    argparser.add_argument("--eval_every", type=int, default=1000)
+    argparser.add_argument("--batch_size", type=int, default=64)
     argparser.add_argument("--n_workers", type=int, default=6)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output55" )
+    argparser.add_argument("--save_dir", type=str, default="outputs/output60" )
 
     args = argparser.parse_args()
 

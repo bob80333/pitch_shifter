@@ -218,17 +218,19 @@ class WavUNet(nn.Module):
 
 
 if __name__ == "__main__":
-    model = WavUNet()
+    model = WavUNet().to("cuda")
     # print # model params
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"# params: {params/1e6:.2f}M")
-    x = torch.randn(8, 1, 65536)
+    x = torch.randn(64, 1, 16384*3).to("cuda")
     print(x.shape)
     from time import time
+    from tqdm import trange
 
     with torch.no_grad():
         start = time()
-        y = model(x)
+        for _ in trange(100):
+            y = model(x)
         end = time()
     print("Input shape", x.shape, "Output shape", y.shape)
     print("Took", end - start, "seconds")
