@@ -322,4 +322,36 @@ output55
 just realized that the audio isn't getting properly low-passed for pitch shifted baseline
 
 
+fix audio preprocessing
+output56
+
+fix preprocessing actually (Muon)
+output57
+
+try longer run to see if better result (Muon)
+not really, a little better
+output58
+
+add seeds / reproducibility, reduce LR a bit
+output59
+
+try out wavlm feature matching loss
+the paper "FINALLY: fast and universal speech enhancement with studio-like quality" uses wavlm conv features
+they show that wavlm features allow them to train a decent quality autoencoder, notably CDPAM completely fails to train an autoencoder (which matches my experience)
+they come up with metrics to measure how good features are and show that wavlm performs well on those metrics (CDPAM fails them)
+
+they say that wavlm features + stft loss allows them to train a model with an MOS score approaching that of adversarial training (4.3 vs 4.6) without any discriminator
+problem: wavlm features only work for 16khz.  so they use wavlm features for stage 1 of 3, and then not for later stages which use discriminators and 48khz audio
+
+for this test I will just resample audio to 16khz in dataloader and reduce # of samples processed to 1/3 (same factor as sample rate reduction)
+if it works, I will (in another repo) attempt to distill wavlm conv features into another model
+
+48khz audio -> student -> features
+16khz audio -> wavlm_conv -> features
+loss on features
+in theory gives us student that can handle 48khz audio and has good properties like wavlm
+but first need to see if worth it to even try
+
+
+
 

@@ -18,7 +18,7 @@ from heavyball import ForeachPSGDKron, ForeachSOAP
 import heavyball
 import numpy as np
 import random
-
+from wavlm_loss import WavLMFeatureMatchingLoss
 
 sr = 48000
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -89,6 +89,8 @@ def main(args):
 
     #dac_loss = DACFeatureMatchingLoss(device)
 
+    wavlm_loss = WavLMFeatureMatchingLoss(device)
+
 
     # using setting from DAC base.yml:
     # MelSpectrogramLoss.n_mels: [5, 10, 20, 40, 80, 160, 320]
@@ -98,7 +100,7 @@ def main(args):
     # MelSpectrogramLoss.pow: 1.0
     # MelSpectrogramLoss.clamp_eps: 1.0e-5
     # MelSpectrogramLoss.mag_weight: 0.0
-    melspec_loss = MelSpectrogramLoss(n_mels=[5, 10, 20, 40, 80, 160, 320], window_lengths=[32, 64, 128, 256, 512, 1024, 2048], mel_fmin=[0, 0, 0, 0, 0, 0, 0], mel_fmax=[None, None, None, None, None, None, None], pow=1.0, clamp_eps=1.0e-5, mag_weight=0.0)
+    #melspec_loss = MelSpectrogramLoss(n_mels=[5, 10, 20, 40, 80, 160, 320], window_lengths=[32, 64, 128, 256, 512, 1024, 2048], mel_fmin=[0, 0, 0, 0, 0, 0, 0], mel_fmax=[None, None, None, None, None, None, None], pow=1.0, clamp_eps=1.0e-5, mag_weight=0.0)
 
     writer = SummaryWriter(args.save_dir)
 
@@ -129,10 +131,12 @@ def main(args):
         #loss = dac_loss(unshifted_audio, audio)
 
         # make tensors AudioSignals for MelSpectrogramLoss (takes in tensors, so should preserve gradients)
-        audio = AudioSignal(audio, sr)
-        unshifted_audio = AudioSignal(unshifted_audio, sr)
+        #audio = AudioSignal(audio, sr)
+        #unshifted_audio = AudioSignal(unshifted_audio, sr)
 
-        loss = melspec_loss(unshifted_audio, audio)
+        #loss = melspec_loss(unshifted_audio, audio)
+
+        loss = wavlm_loss(unshifted_audio, audio)
 
         loss.backward()
         # log / clip grad norm
