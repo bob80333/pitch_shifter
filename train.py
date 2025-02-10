@@ -8,6 +8,7 @@ from pathlib import Path
 import argparse
 from tqdm import trange
 from auraloss.freq import MultiResolutionSTFTLoss
+from auraloss.time import SISDRLoss
 from torch.utils.tensorboard import SummaryWriter
 import os
 import torchaudio.transforms as T
@@ -19,8 +20,9 @@ import heavyball
 import numpy as np
 import random
 from wavlm_loss import WavLMFeatureMatchingLoss
+from model_1d_melgan_based import MelGANUNet
 
-sr = 48000
+sr = 16_000
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 hop = sr // 200
 
@@ -81,6 +83,8 @@ def main(args):
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
 
     stft_loss = MultiResolutionSTFTLoss(fft_sizes = [4096, 2048, 1024], hop_sizes = [480, 240, 120], win_lengths = [2400, 1200, 600], scale="mel", n_bins=128, sample_rate=sr, perceptual_weighting=True)
+    
+    sisdr_loss = SISDRLoss()
     #l1_loss = torch.nn.L1Loss()
 
     #cdpam_loss = cdpam.CDPAM(dev='cuda:0')
@@ -89,7 +93,7 @@ def main(args):
 
     #dac_loss = DACFeatureMatchingLoss(device)
 
-    wavlm_loss = WavLMFeatureMatchingLoss(device)
+    #wavlm_loss = WavLMFeatureMatchingLoss(device)
 
 
     # using setting from DAC base.yml:
@@ -100,7 +104,7 @@ def main(args):
     # MelSpectrogramLoss.pow: 1.0
     # MelSpectrogramLoss.clamp_eps: 1.0e-5
     # MelSpectrogramLoss.mag_weight: 0.0
-    #melspec_loss = MelSpectrogramLoss(n_mels=[5, 10, 20, 40, 80, 160, 320], window_lengths=[32, 64, 128, 256, 512, 1024, 2048], mel_fmin=[0, 0, 0, 0, 0, 0, 0], mel_fmax=[None, None, None, None, None, None, None], pow=1.0, clamp_eps=1.0e-5, mag_weight=0.0)
+    melspec_loss = MelSpectrogramLoss(n_mels=[5, 10, 20, 40, 80, 160, 320], window_lengths=[32, 64, 128, 256, 512, 1024, 2048], mel_fmin=[0, 0, 0, 0, 0, 0, 0], mel_fmax=[None, None, None, None, None, None, None], pow=1.0, clamp_eps=1.0e-5, mag_weight=0.0)
 
     writer = SummaryWriter(args.save_dir)
 
@@ -129,15 +133,15 @@ def main(args):
         #loss = cdpam_loss.forward(resampler(audio), resampler(unshifted_audio)).mean()
 
         #loss = dac_loss(unshifted_audio, audio)
+        #feature_loss = wavlm_loss(unshifted_audio, audio)
 
         # make tensors AudioSignals for MelSpectrogramLoss (takes in tensors, so should preserve gradients)
-        #audio = AudioSignal(audio, sr)
-        #unshifted_audio = AudioSignal(unshifted_audio, sr)
+        audio = AudioSignal(audio, sr)
+        unshifted_audio = AudioSignal(unshifted_audio, sr)
 
-        #loss = melspec_loss(unshifted_audio, audio)
+        mel_loss = melspec_loss(unshifted_audio, audio)
 
-        loss = wavlm_loss(unshifted_audio, audio)
-
+        loss = mel_loss #+ 1e5 * feature_loss
         loss.backward()
         # log / clip grad norm
         writer.add_scalar("train/grad_norm", torch.nn.utils.clip_grad_norm_(model.parameters(), 1e3).item(), step+1)
@@ -145,12 +149,15 @@ def main(args):
         optimizer.step()
 
         writer.add_scalar("train/loss", loss, step+1)
+        writer.add_scalar("train/mel_loss", mel_loss, step+1)
+        #writer.add_scalar("train/wavlm_loss", feature_loss, step+1)
 
         if (step + 1) % args.eval_every == 0:
             model.eval()
             val_loss = 0
             with torch.no_grad():
                 total_val_loss = 0
+                total_val_sisdr = 0
                 total_shifted_loss = 0
                 i = 0
                 for audio, shifted_audio in val_dataloader:
@@ -166,17 +173,22 @@ def main(args):
 
                     # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
                     val_loss = stft_loss(unshifted_audio, audio)
+                    # calculate sisdr loss
+                    val_sisdr = sisdr_loss(unshifted_audio, audio)
                     # calculate the error for the shifted audio, should have artifacts from shifting, the model output should have a better error than this
                     shifted_loss = stft_loss(shifted_audio, audio)
 
                     total_val_loss += val_loss
+                    total_val_sisdr += val_sisdr
                     total_shifted_loss += shifted_loss
                     i += 1
                 
                 total_val_loss /= i
                 total_shifted_loss /= i
+                total_val_sisdr /= i
                 
                 writer.add_scalar("val/loss", total_val_loss, step+1)
+                writer.add_scalar("val/sisdr", total_val_sisdr, step+1)
                 # baseline, if model output is worse than this, it's not useful
                 writer.add_scalar("val/shifted_loss", total_shifted_loss, step+1)
 
@@ -200,7 +212,7 @@ if __name__ == "__main__":
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=64)
     argparser.add_argument("--n_workers", type=int, default=6)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output60" )
+    argparser.add_argument("--save_dir", type=str, default="outputs/output69" )
 
     args = argparser.parse_args()
 

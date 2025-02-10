@@ -76,9 +76,9 @@ class PreShiftedAudioDataset(Dataset):
         # keep only files that were shifted
         self.preprocessed_files = [str(x) for x in preprocessed_files if "baseline" not in str(x)]
 
-        if test:
-            # only use files that were shifted up 1 octave for testing
-            self.preprocessed_files = [str(x) for x in self.preprocessed_files if "shifted_12" in str(x)]
+        #if test:
+            # only use files that were shifted up 1 octave
+        self.preprocessed_files = [str(x) for x in self.preprocessed_files if "shifted_12" in str(x)]
         self.samples = samples
         self.test = test
         self.stretch = None # mono audio, 48 kHz

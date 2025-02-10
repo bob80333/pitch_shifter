@@ -352,6 +352,59 @@ loss on features
 in theory gives us student that can handle 48khz audio and has good properties like wavlm
 but first need to see if worth it to even try
 
+does manage to train model
+results not noticably better than multi stft loss
+metrics worse, not surprising, very different loss function for training vs val
+output60
 
+let's try wavlm features + the melspec loss i was using before
+the wavlm loss gets down to ~7e-6 by the end of 10k steps
+the melspec loss gets down to ~0.97 = ~9.7e-1 by the end of 10k steps
+to keep the loss scales similar, multiply wavlm loss by 1e5
+output61
 
+train for longer
+didn't do better
+output62
+
+try fixing skip connections
+1. conv that takes channels * 2 and outputs channels (kernel = 1)
+also added sisdr for validation, it is inverted since it is a loss, so lower is better
+since nothing is directly optimizing anything like sisdr, it should be more useful to tell quality
+output63
+
+2. conv on the residual, then add
+like conv(res) + x
+output64
+
+either way performance not great.  maybe this architecture is bad
+let's try melgan based architecture
+(good audio archs are often very different from good vision archs)
+rough start but caught up by the end
+output65
+
+some tweaks to fix the architecture, it wasn't quite correct
+worse somehow
+also both melgan based models had high pitched artifacts
+output66
+
+many sound separation models predict a mask they then multiply
+try that at end of model? start with melgan
+model NaN'd out ~300 steps in, gradient norms died to 0 after ~65 steps
+output67
+
+let's try again with original unet model?
+trained successfully, but worse results
+output68
+
+all these tweaks and the model is still failing to fix the audio
+to make the task easier, let's make training data only have 1 shift, same as test (the 1 octave shift)
+remove wavlm loss, try with just stft, to make training / iterating faster
+
+output69
+
+overall, the artifacts are not going away.
+arch, loss, optimizer, 10k steps or 100k steps, still same artifact as original audio
+
+let's try GAN training, there is a reason every audio paper uses one
 

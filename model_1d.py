@@ -184,13 +184,17 @@ class Decoder(nn.Module):
                     factor=factors[i - 1],
                 )
             )
+            self.blocks.append(nn.Conv1d(channels[i], channels[i], 1))
+
 
     def forward(self, x, residuals):
         for block in self.blocks:
-            x = block(x)
-            if isinstance(block, UpsampleWithSkip):
-                residual = residuals.pop()
-                x = x + residual
+            # skip conv
+            if isinstance(block, nn.Conv1d):
+                res = block(residuals.pop())
+                x = x + res
+            else:
+                x = block(x)
 
         return x
 
@@ -211,8 +215,10 @@ class WavUNet(nn.Module):
         )
 
     def forward(self, x):
+        noised = x
         x, residuals = self.encoder(x)
         x = self.decoder(x, residuals)
+        x = x * noised # mask noise out with model prediction
 
         return x
 
