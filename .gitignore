@@ -3,6 +3,7 @@ data/
 *.wav
 # outputs
 outputs/
+outputs_gan/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -83,7 +83,7 @@ class PreShiftedAudioDataset(Dataset):
         self.test = test
         self.stretch = None # mono audio, 48 kHz
 
-        self.resampler = T.Resample(orig_freq=48_000, new_freq=16_000)
+        #self.resampler = T.Resample(orig_freq=48_000, new_freq=16_000)
 
     def __len__(self):
         return len(self.preprocessed_files)
@@ -104,8 +104,8 @@ class PreShiftedAudioDataset(Dataset):
         shifted_audio = shifted_audio.float()
 
         # resample to 16 kHz
-        audio = self.resampler(audio)
-        shifted_audio = self.resampler(shifted_audio)
+        #audio = self.resampler(audio)
+        #shifted_audio = self.resampler(shifted_audio)
 
         if self.test:
             # return middle group of samples

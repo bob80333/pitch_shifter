@@ -1,0 +1,20 @@
+starting out with the model_1d, not melgan arch since it seems prone to artifacts
+
+using the discriminator from DAC
+
+re-using their loss weighting of 1.0 gen_loss +  2.0 feature matching loss for the generator
+no aux losses for now
+batch size 32, AdamW with DAC settings
+
+seems to be training stably
+training is much slower, ~1.68it/s
+for 1 million steps, this will take ~6 days
+output0
+
+does lower batch size improve final result like in MelGAN?
+can discriminator or model arch be optimized any more to make training faster?
+can it handle full bf16 training? could give speedup
+
+try out Muon for this later, wonder how well it does for GAN setting
+training is already very slow so optimizer slowdown shouldn't be too much
+if it can converge quickly without exploding then could potentially train model for much fewer steps and still get good result
