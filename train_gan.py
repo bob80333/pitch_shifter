@@ -13,13 +13,15 @@ import os
 import torchaudio.transforms as T
 from audiotools.core.audio_signal import AudioSignal
 from dac.model import Discriminator
-from dac.nn.loss import GANLoss
+from dac.nn.loss import GANLoss, MelSpectrogramLoss
 import numpy as np
 import random
+from torch import amp
 
 sr = 48_000
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 hop = sr // 200
+AMP_ENABLE = False
 
 # performance tweaks
 torch.backends.cudnn.benchmark = True
@@ -53,18 +55,25 @@ def main(args):
 
     disc = Discriminator(sample_rate=sr, bands=[[0.0, 0.1], [0.1, 0.25], [0.25, 0.5], [0.5, 0.75], [0.75, 1.0]])
     disc.to(device)
+
     # # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
     # muon_params = [p for p in model.parameters() if p.ndim >= 2]
     # # Find everything else -- these will be optimized by AdamW
     # adamw_params = [p for p in model.parameters() if p.ndim < 2]
     # # Create the optimizer
-    # optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
-    #                 adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
-
+    # g_optim = Muon(muon_params, lr=1e-3, momentum=0.95,
+    #                 adamw_params=adamw_params, adamw_lr=1e-4, adamw_betas=(0.8, 0.99), adamw_wd=0.01)
+    
+    # # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
+    # muon_params = [p for p in disc.parameters() if p.ndim >= 2]
+    # # Find everything else -- these will be optimized by AdamW
+    # adamw_params = [p for p in disc.parameters() if p.ndim < 2]
+    # # Create the optimizer
+    # d_optim = Muon(muon_params, lr=1e-3, momentum=0.95,
+    #                 adamw_params=adamw_params, adamw_lr=1e-4, adamw_betas=(0.8, 0.99), adamw_wd=0.01)
 
     g_optim = torch.optim.AdamW(model.parameters(), lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01)
     d_optim = torch.optim.AdamW(disc.parameters(), lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01)
-    #optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
 
     train_files = list(Path("data/train_processed").rglob("*.wav"))
     print(f"Found {len(train_files)} training files")
@@ -73,16 +82,18 @@ def main(args):
 
     val_files = list(Path("data/val_processed").rglob("*.wav"))
     print(f"Found {len(val_files)} validation files")
-    val_dataset = PreShiftedAudioDataset(val_files, test=True)
+    val_dataset = PreShiftedAudioDataset(val_files, test=True, samples=16384*4)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
 
     # val losses
     stft_loss = MultiResolutionSTFTLoss(fft_sizes = [4096, 2048, 1024], hop_sizes = [480, 240, 120], win_lengths = [2400, 1200, 600], scale="mel", n_bins=128, sample_rate=sr, perceptual_weighting=True)
     
     sisdr_loss = SISDRLoss()
+    # l1 loss on wav directly as part of val    
+    l1_loss = torch.nn.L1Loss()
 
+    # train losses
     gan_loss = GANLoss(disc)
-
 
 
     # using setting from DAC base.yml:
@@ -93,11 +104,12 @@ def main(args):
     # MelSpectrogramLoss.pow: 1.0
     # MelSpectrogramLoss.clamp_eps: 1.0e-5
     # MelSpectrogramLoss.mag_weight: 0.0
-    #melspec_loss = MelSpectrogramLoss(n_mels=[5, 10, 20, 40, 80, 160, 320], window_lengths=[32, 64, 128, 256, 512, 1024, 2048], mel_fmin=[0, 0, 0, 0, 0, 0, 0], mel_fmax=[None, None, None, None, None, None, None], pow=1.0, clamp_eps=1.0e-5, mag_weight=0.0)
+    melspec_loss = MelSpectrogramLoss(n_mels=[5, 10, 20, 40, 80, 160, 320], window_lengths=[32, 64, 128, 256, 512, 1024, 2048], mel_fmin=[0, 0, 0, 0, 0, 0, 0], mel_fmax=[None, None, None, None, None, None, None], pow=1.0, clamp_eps=1.0e-5, mag_weight=0.0)
 
     writer = SummaryWriter(args.save_dir)
 
     train_gen = inf_train_generator(train_dataloader)
+
 
     for step in trange(args.n_steps):
         model.train()
@@ -112,15 +124,19 @@ def main(args):
 
         audio = AudioSignal(audio, sample_rate=sr)
 
-        # discriminator loss
-        # no grad for generator
-        with torch.no_grad():
-            unshifted_audio = model(shifted_audio)
-            unshifted_audio = AudioSignal(unshifted_audio, sample_rate=sr)
-        
         d_optim.zero_grad()
 
-        d_loss = gan_loss.discriminator_loss(unshifted_audio, audio)
+        with amp.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=AMP_ENABLE):
+
+            # discriminator loss
+            # no grad for generator
+            with torch.no_grad():
+                unshifted_audio = model(shifted_audio)
+                unshifted_audio = AudioSignal(unshifted_audio, sample_rate=sr)
+            
+
+            d_loss = gan_loss.discriminator_loss(unshifted_audio, audio)
+
         d_loss.backward()
 
         writer.add_scalar("train/disc_grad_norm", torch.nn.utils.clip_grad_norm_(disc.parameters(), 1e2).item(), step+1)
@@ -130,11 +146,15 @@ def main(args):
         # generator loss
         g_optim.zero_grad()
 
-        unshifted_audio = model(shifted_audio)
-        unshifted_audio = AudioSignal(unshifted_audio, sample_rate=sr)
+        with amp.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=AMP_ENABLE):
 
-        gen_loss, feat_loss  = gan_loss.generator_loss(unshifted_audio, audio)
-        g_loss = gen_loss + 2.0 * feat_loss
+            unshifted_audio = model(shifted_audio)
+            unshifted_audio = AudioSignal(unshifted_audio, sample_rate=sr)
+
+            mel_loss = melspec_loss(unshifted_audio, audio)
+
+            gen_loss, feat_loss  = gan_loss.generator_loss(unshifted_audio, audio)
+            g_loss = gen_loss + 2.0 * feat_loss + 15.0 * mel_loss
         g_loss.backward()
 
         writer.add_scalar("train/gen_grad_norm", torch.nn.utils.clip_grad_norm_(model.parameters(), 1e3).item(), step+1)
@@ -144,14 +164,15 @@ def main(args):
         writer.add_scalar("train_g/loss", g_loss, step+1)
         writer.add_scalar("train_g/feat_loss", feat_loss, step+1)
         writer.add_scalar("train_g/gen_loss", gen_loss, step+1)
+        writer.add_scalar("train_g/mel_loss", mel_loss, step+1)
         writer.add_scalar("train_d/loss", d_loss, step+1)
 
         if (step + 1) % args.eval_every == 0:
             model.eval()
-            val_loss = 0
             with torch.no_grad():
                 total_val_loss = 0
                 total_val_sisdr = 0
+                total_val_l1 = 0
                 total_shifted_loss = 0
                 i = 0
                 for audio, shifted_audio in val_dataloader:
@@ -161,29 +182,37 @@ def main(args):
                     # add channels dimension for losses calculation
                     audio = audio.unsqueeze(1)
                     shifted_audio = shifted_audio.unsqueeze(1)
-                                        
-                    # remove pitch artifacts from shifted audio
-                    unshifted_audio = model(shifted_audio)
+
+                    with amp.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=AMP_ENABLE):
+                                            
+                        # remove pitch artifacts from shifted audio
+                        unshifted_audio = model(shifted_audio)
 
                     # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
                     val_loss = stft_loss(unshifted_audio, audio)
                     # calculate sisdr loss
                     val_sisdr = sisdr_loss(unshifted_audio, audio)
+                    # calculate l1 loss
+                    val_l1 = l1_loss(unshifted_audio, audio)
                     # calculate the error for the shifted audio, should have artifacts from shifting, the model output should have a better error than this
                     shifted_loss = stft_loss(shifted_audio, audio)
 
                     total_val_loss += val_loss
                     total_val_sisdr += val_sisdr
+                    total_val_l1 += val_l1
                     total_shifted_loss += shifted_loss
                     i += 1
                 
+                # val losses
                 total_val_loss /= i
-                total_shifted_loss /= i
                 total_val_sisdr /= i
+                total_val_l1 /= i
+                # baseline, if model output is worse than this, it's not useful
+                total_shifted_loss /= i
                 
                 writer.add_scalar("val/loss", total_val_loss, step+1)
                 writer.add_scalar("val/sisdr", total_val_sisdr, step+1)
-                # baseline, if model output is worse than this, it's not useful
+                writer.add_scalar("val/l1", total_val_l1, step+1)
                 writer.add_scalar("val/shifted_loss", total_shifted_loss, step+1)
 
                 # save an example output
@@ -202,11 +231,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=10_000)
+    argparser.add_argument("--n_steps", type=int, default=100_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
-    argparser.add_argument("--batch_size", type=int, default=32)
-    argparser.add_argument("--n_workers", type=int, default=2)
-    argparser.add_argument("--save_dir", type=str, default="outputs_gan/output0" )
+    argparser.add_argument("--batch_size", type=int, default=4)
+    argparser.add_argument("--n_workers", type=int, default=3)
+    argparser.add_argument("--save_dir", type=str, default="outputs_gan/output9" )
 
     args = argparser.parse_args()
 

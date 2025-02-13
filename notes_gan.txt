@@ -17,4 +17,67 @@ can it handle full bf16 training? could give speedup
 
 try out Muon for this later, wonder how well it does for GAN setting
 training is already very slow so optimizer slowdown shouldn't be too much
-if it can converge quickly without exploding then could potentially train model for much fewer steps and still get good result
+if it can converge quickly without exploding then could potentially train model for much fewer steps and still get good results that would be great
+
+
+Muon seems to work, although grad norms seemed to spike a bit near end of training
+results were definitely better, metrics were even improving
+output1
+
+Let's try increasing # of samples during test so that it's actually more than one word
+also, let's add melspec loss like in DAC since already using their impl for other stuff
+should help
+add l1 loss to validation
+batch size 16, melgan paper claims its better
+first, AdamW again:
+adamw results are same loudness as input, no weird peaking at edge of audio
+probably due to melspec loss
+output2
+
+then muon
+muon advantage isn't clear here, but is slower than adamw
+still with a few big grad norm spikes in the generator
+muon again the discriminator starts to win more, generator is behind, like in Adam but just much faster
+results still sound similar to input thought :/
+output3
+
+trying out autocasting to bf16, hopefully can speed up training a bit since with the discriminator it's quite slow
+nice, seems to be about 40-50% faster
+output4
+
+muon?
+also faster
+output5
+
+loss wise and metrics wise seems maybe a little worse?
+
+DAC did ablations with batch 12 for 250k steps, so let's do these tests for 100k steps with batch 16
+let's try AdamW no bf16 for 100k steps vs with bf16
+
+adamw no bf16 100k steps
+output6
+
+muon no bf16 100k steps
+output7
+
+adamw bf16 100k steps
+killed at 61k for 3 reasons
+1. worse performance on all metrics
+2. EVA gan paper specifically says that fp16 unstable to train, bf16 reduced quality, tf32 was only thing that worked
+3. weird artifact in the audio when the other 2 runs didn't have that
+
+eva gan says that longer context window helps model
+bigvgan-2 config (no paper... yet?) has 4x context window but 1/4 batch size
+let's try that
+
+adamw no bf16 1/4 batch size 4x seqlen
+output9
+killed early due to realizing:
+most model archs have different setup of downsampling
+this model has failed to learn in many scenarios
+let's try modifying arch a little 
+
+also while making v2 just realized that the model still had the multplicative mask setup
+
+so:
+back to original notes.txt

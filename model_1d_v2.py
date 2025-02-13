@@ -146,24 +146,27 @@ class Encoder(nn.Module):
         super().__init__()
 
         self.blocks = nn.ModuleList()
-        for i in range(1, len(channels)):
+        for i in range(len(channels) - 1):
+            for _ in range(blocks[i]):
+                self.blocks.append(ConvNextBlock(channels[i]))
             self.blocks.append(
                 DownsampleWithSkip(
-                    channels[i - 1],
                     channels[i],
-                    average_channels=scale_vs_channels[i - 1],
-                    factor=factors[i - 1],
+                    channels[i + 1],
+                    average_channels=scale_vs_channels[i],
+                    factor=factors[i],
                 )
             )
-            for _ in range(blocks[i - 1]):
-                self.blocks.append(ConvNextBlock(channels[i]))
 
     def forward(self, x):
-        residuals = []
+        residuals = [x]
         for block in self.blocks:
+            x = block(x)
             if isinstance(block, DownsampleWithSkip):
                 residuals.append(x)
-            x = block(x)
+
+        # remove last residual
+        residuals.pop()
 
         return x, residuals
 
@@ -174,8 +177,6 @@ class Decoder(nn.Module):
 
         self.blocks = nn.ModuleList()
         for i in range(1, len(channels)):
-            for _ in range(blocks[i - 1]):
-                self.blocks.append(ConvNextBlock(channels[i - 1]))
             self.blocks.append(
                 UpsampleWithSkip(
                     channels[i - 1],
@@ -184,17 +185,19 @@ class Decoder(nn.Module):
                     factor=factors[i - 1],
                 )
             )
-            self.blocks.append(nn.Conv1d(channels[i], channels[i], 1))
+            for _ in range(blocks[i - 1]):
+                self.blocks.append(ConvNextBlock(channels[i]))
+
+            self.blocks.append(nn.Conv1d(channels[i] * 2, channels[i], 1))
 
 
     def forward(self, x, residuals):
         for block in self.blocks:
             # skip conv
             if isinstance(block, nn.Conv1d):
-                res = block(residuals.pop())
-                x = x + res
-            else:
-                x = block(x)
+                x = torch.cat([x, residuals.pop()], dim=1)
+                
+            x = block(x)
 
         return x
 
@@ -204,20 +207,30 @@ class WavUNet(nn.Module):
         super().__init__()
 
         if channels is None:
-            channels = [1, 8, 64, 256, 512]
-            blocks = [3, 4, 4, 4]
+            channels = [8, 32, 128, 256, 512]
+            blocks = [1, 3, 4, 4]
             factors = [8, 8, 4, 2]
-            scale_vs_channels = [1, 1, 1, 1]
+            scale_vs_channels = [2, 2, 2, 1]
+
+            bottleneck_blocks = 4
 
         self.encoder = Encoder(channels, blocks, factors, scale_vs_channels)
         self.decoder = Decoder(
             channels[::-1], blocks[::-1], factors[::-1], scale_vs_channels[::-1]
         )
 
+        self.bottleneck = nn.Sequential(*[ConvNextBlock(channels[-1]) for _ in range(bottleneck_blocks)])
+
+        self.conv_in = nn.Conv1d(1, channels[0], 5, padding=2)
+        self.conv_out = nn.Conv1d(channels[0], 1, 5, padding=2)
+
     def forward(self, x):
         noised = x
+        x = self.conv_in(x)
         x, residuals = self.encoder(x)
+        x = self.bottleneck(x)
         x = self.decoder(x, residuals)
+        x = self.conv_out(x)
 
         return x
 
@@ -237,7 +250,7 @@ if __name__ == "__main__":
 
     with torch.no_grad():
         start = time()
-        for _ in trange(2000):
+        for _ in trange(1000):
             y = model(x)
         end = time()
     print("Input shape", x.shape, "Output shape", y.shape)

@@ -1,7 +1,7 @@
 from muon import Muon
 import torch
 from model_2d import AudioUNet
-from model_1d import WavUNet
+from model_1d_v2 import WavUNet
 from data import AudioDataset, PreShiftedAudioDataset
 from torch.utils.data import DataLoader
 from pathlib import Path
@@ -13,7 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 import torchaudio.transforms as T
 from dac_loss import DACFeatureMatchingLoss
-from audiotools.metrics.spectral import MelSpectrogramLoss
+from audiotools.metrics.spectral import MelSpectrogramLoss, PhaseLoss
 from audiotools.core.audio_signal import AudioSignal
 from heavyball import ForeachPSGDKron, ForeachSOAP
 import heavyball
@@ -22,7 +22,7 @@ import random
 from wavlm_loss import WavLMFeatureMatchingLoss
 from model_1d_melgan_based import MelGANUNet
 
-sr = 16_000
+sr = 48_000
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 hop = sr // 200
 
@@ -79,13 +79,13 @@ def main(args):
 
     val_files = list(Path("data/val_processed").rglob("*.wav"))
     print(f"Found {len(val_files)} validation files")
-    val_dataset = PreShiftedAudioDataset(val_files, test=True)
+    val_dataset = PreShiftedAudioDataset(val_files, test=True, samples=16384*4)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
 
     stft_loss = MultiResolutionSTFTLoss(fft_sizes = [4096, 2048, 1024], hop_sizes = [480, 240, 120], win_lengths = [2400, 1200, 600], scale="mel", n_bins=128, sample_rate=sr, perceptual_weighting=True)
     
     sisdr_loss = SISDRLoss()
-    #l1_loss = torch.nn.L1Loss()
+    l1_loss_fn = torch.nn.L1Loss()
 
     #cdpam_loss = cdpam.CDPAM(dev='cuda:0')
 
@@ -128,7 +128,7 @@ def main(args):
         # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
         #loss = stft_loss(unshifted_audio, audio)
 
-        # loss = l1_loss(unshifted_audio, audio)
+        # l1_loss = l1_loss_fn(unshifted_audio, audio)
 
         #loss = cdpam_loss.forward(resampler(audio), resampler(unshifted_audio)).mean()
 
@@ -141,7 +141,8 @@ def main(args):
 
         mel_loss = melspec_loss(unshifted_audio, audio)
 
-        loss = mel_loss #+ 1e5 * feature_loss
+        loss = mel_loss # + 10 * l1_loss
+        #loss = l1_loss(unshifted_audio, audio)
         loss.backward()
         # log / clip grad norm
         writer.add_scalar("train/grad_norm", torch.nn.utils.clip_grad_norm_(model.parameters(), 1e3).item(), step+1)
@@ -150,6 +151,7 @@ def main(args):
 
         writer.add_scalar("train/loss", loss, step+1)
         writer.add_scalar("train/mel_loss", mel_loss, step+1)
+        # writer.add_scalar("train/l1_loss", l1_loss, step+1)
         #writer.add_scalar("train/wavlm_loss", feature_loss, step+1)
 
         if (step + 1) % args.eval_every == 0:
@@ -208,11 +210,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=10_000)
+    argparser.add_argument("--n_steps", type=int, default=5_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
-    argparser.add_argument("--batch_size", type=int, default=64)
+    argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=6)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output69" )
+    argparser.add_argument("--save_dir", type=str, default="outputs/output76" )
 
     args = argparser.parse_args()
 

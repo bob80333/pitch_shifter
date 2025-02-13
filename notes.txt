@@ -408,3 +408,40 @@ arch, loss, optimizer, 10k steps or 100k steps, still same artifact as original 
 
 let's try GAN training, there is a reason every audio paper uses one
 
+notes_gan.txt
+
+
+ok, let's try model_1d.py without multiplication
+muon, 5k steps, batch 32
+output70
+
+modified architecture following more closely (but not the same) setup as hifi++ wavunet
+same otherwise
+wow, really good spectrogram matching, the melspec looks identical
+but still sounds bad
+output71
+
+l1 loss? modified arch
+not really, l1 loss just isn't very great perceptually
+output72
+
+if not the power spectra then its the phase!
+phase loss from dac library
+killed after 2k steps... my ears!!!!
+output73
+
+modified arch,  melspec + l1 loss
+lambda_l1 = 10, since its ~0.025 and melspec is ~1 after training, brings them within 1 oom
+looks like the l1 might be helping
+output74
+
+20k steps
+better, sounds slightly better than baseline
+but nowhere near original
+output75
+
+modified the v2 model to be faster and have more params (less blocks at high res, more channels at low res, more downsampling)
+5k steps
+just mel spec loss
+similar metrics
+output 76

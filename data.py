@@ -107,16 +107,22 @@ class PreShiftedAudioDataset(Dataset):
         #audio = self.resampler(audio)
         #shifted_audio = self.resampler(shifted_audio)
 
-        if self.test:
-            # return middle group of samples
-            start = audio.shape[0] // 2 - self.samples // 2
-            audio = audio[start : start + self.samples]
-            shifted_audio = shifted_audio[start : start + self.samples]
+        if audio.shape[0] > self.samples:
+            if self.test:
+                # return middle group of samples
+                start = audio.shape[0] // 2 - self.samples // 2
+                audio = audio[start : start + self.samples]
+                shifted_audio = shifted_audio[start : start + self.samples]
+            else:
+                # return random group of samples
+                start = np.random.randint(0, audio.shape[0] - self.samples)
+                audio = audio[start : start + self.samples]
+                shifted_audio = shifted_audio[start : start + self.samples]
         else:
-            # return random group of samples
-            start = np.random.randint(0, audio.shape[0] - self.samples)
-            audio = audio[start : start + self.samples]
-            shifted_audio = shifted_audio[start : start + self.samples]
+            # pad audio if necessary
+            audio = torch.nn.functional.pad(audio, (0, self.samples - audio.shape[0]))
+            shifted_audio = torch.nn.functional.pad(shifted_audio, (0, self.samples - shifted_audio.shape[0]))
+
 
 
 
