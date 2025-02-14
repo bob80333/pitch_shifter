@@ -1,6 +1,6 @@
 from muon import Muon
 import torch
-from model_1d import WavUNet
+from model_1d_v2 import WavUNet
 from data import PreShiftedAudioDataset
 from torch.utils.data import DataLoader
 from pathlib import Path
@@ -231,11 +231,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=100_000)
+    argparser.add_argument("--n_steps", type=int, default=10_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
-    argparser.add_argument("--batch_size", type=int, default=4)
+    argparser.add_argument("--batch_size", type=int, default=16)
     argparser.add_argument("--n_workers", type=int, default=3)
-    argparser.add_argument("--save_dir", type=str, default="outputs_gan/output9" )
+    argparser.add_argument("--save_dir", type=str, default="outputs_gan/output10" )
 
     args = argparser.parse_args()
 

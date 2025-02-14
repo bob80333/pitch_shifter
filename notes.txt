@@ -445,3 +445,18 @@ modified the v2 model to be faster and have more params (less blocks at high res
 just mel spec loss
 similar metrics
 output 76
+
+back to the melspec + l1 setting but with 100k steps and bigger batch size (64)
+since its the only result that had real promise for making the audio sound actually good
+and it was still having loss / metric improvements at 20k steps
+
+really great results actually
+unfortunately after testing on a full audio there was artifacts
+maybe due to too short training length
+
+output77
+
+so:
+increase train length 4x to 65536 (like bigvgan v2 config)
+reduce batch size 4x
+increase the validation length to 16*16384 (~5.4 seconds, close to the length that caused issues)

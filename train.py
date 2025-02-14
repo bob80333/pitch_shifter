@@ -74,12 +74,12 @@ def main(args):
 
     train_files = list(Path("data/train_processed").rglob("*.wav"))
     print(f"Found {len(train_files)} training files")
-    train_dataset = PreShiftedAudioDataset(train_files)
+    train_dataset = PreShiftedAudioDataset(train_files, samples=16384*4)
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
 
     val_files = list(Path("data/val_processed").rglob("*.wav"))
     print(f"Found {len(val_files)} validation files")
-    val_dataset = PreShiftedAudioDataset(val_files, test=True, samples=16384*4)
+    val_dataset = PreShiftedAudioDataset(val_files, test=True, samples=16384*16)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
 
     stft_loss = MultiResolutionSTFTLoss(fft_sizes = [4096, 2048, 1024], hop_sizes = [480, 240, 120], win_lengths = [2400, 1200, 600], scale="mel", n_bins=128, sample_rate=sr, perceptual_weighting=True)
@@ -128,7 +128,7 @@ def main(args):
         # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
         #loss = stft_loss(unshifted_audio, audio)
 
-        # l1_loss = l1_loss_fn(unshifted_audio, audio)
+        l1_loss = l1_loss_fn(unshifted_audio, audio)
 
         #loss = cdpam_loss.forward(resampler(audio), resampler(unshifted_audio)).mean()
 
@@ -141,7 +141,7 @@ def main(args):
 
         mel_loss = melspec_loss(unshifted_audio, audio)
 
-        loss = mel_loss # + 10 * l1_loss
+        loss = mel_loss + 10 * l1_loss
         #loss = l1_loss(unshifted_audio, audio)
         loss.backward()
         # log / clip grad norm
@@ -151,7 +151,7 @@ def main(args):
 
         writer.add_scalar("train/loss", loss, step+1)
         writer.add_scalar("train/mel_loss", mel_loss, step+1)
-        # writer.add_scalar("train/l1_loss", l1_loss, step+1)
+        writer.add_scalar("train/l1_loss", l1_loss, step+1)
         #writer.add_scalar("train/wavlm_loss", feature_loss, step+1)
 
         if (step + 1) % args.eval_every == 0:
@@ -210,11 +210,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=5_000)
+    argparser.add_argument("--n_steps", type=int, default=100_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
-    argparser.add_argument("--batch_size", type=int, default=32)
+    argparser.add_argument("--batch_size", type=int, default=16)
     argparser.add_argument("--n_workers", type=int, default=6)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output76" )
+    argparser.add_argument("--save_dir", type=str, default="outputs/output78" )
 
     args = argparser.parse_args()
 

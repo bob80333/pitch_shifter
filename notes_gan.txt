@@ -81,3 +81,10 @@ also while making v2 just realized that the model still had the multplicative ma
 
 so:
 back to original notes.txt
+
+ok, have better modified arch
+slower but better
+less parameters
+10k steps adamw to test out new arch, 16k samples batch 16
+will try muon next to see if better generator stops discriminator from winning too much
+output10
