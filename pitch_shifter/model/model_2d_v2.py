@@ -203,10 +203,10 @@ class UNet(nn.Module):
         super().__init__()
 
         if channels is None:
-            channels = [4, 16, 32, 128, 512]
-            blocks = [1, 2, 2, 2]
-            factors = [4, 2, 2, 2]
-            scale_vs_channels = [4, 2, 1, 1]
+            channels = [4, 16, 128, 256, 512]
+            blocks = [1, 3, 4, 4]
+            factors = [4, 4, 2, 2]
+            scale_vs_channels = [4, 2, 2, 2]
 
             bottleneck_blocks = 4
 
@@ -240,9 +240,9 @@ class AudioUNet(nn.Module):
     def forward(self, x):
         # calculate padding
         pad = 0
-        #if (x.shape[-1] + 512) % 8192 != 0:
-        #    pad = 8192 - (x.shape[-1] + 512) % 8192
-        #x = F.pad(x, (0, pad))
+        if (x.shape[-1] + 256) % 16384 != 0:
+            pad = 16384 - (x.shape[-1] + 256) % 16384
+        x = F.pad(x, (0, pad))
         x = self.to_spec(x)
 
         x = torch.view_as_real(x)
@@ -253,8 +253,8 @@ class AudioUNet(nn.Module):
         y = y.permute(0, 2, 3, 1).contiguous()
         y = torch.view_as_complex(y)
         y = self.to_wav(y)
-        #if pad > 0:
-        #    y = y[:, :-pad]
+        if pad > 0:
+            y = y[:, :-pad]
 
         return y
 
@@ -271,15 +271,15 @@ if __name__ == "__main__":
 
     # warmup
     with torch.no_grad():
-        for _ in trange(10):
+        for _ in trange(50):
             # 191*256, the spectrogram pads by 256 to 49152, giving exactly 512x192 2D shape
-            x = torch.randn(32, 48896).to("cuda")
+            x = torch.randn(32, 16384*2 - 256).to("cuda")
             y = opt_model(x)
 
     with torch.no_grad():
         start = time()
-        for _ in trange(250):
-            x = torch.randn(32, 48896).to("cuda")
+        for _ in trange(200):
+            x = torch.randn(32, 16384*2 - 256).to("cuda")
             y = opt_model(x)
         end = time()
     print("Input shape", x.shape, "Output shape", y.shape)
