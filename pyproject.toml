@@ -1,0 +1,10 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pitch_shifter"
+version = "0.1"
+
+[tool.setuptools]
+packages = ["pitch_shifter"]

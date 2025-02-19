@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchaudio.transforms as T
-from model.pixelshuffle1d import PixelUnshuffle1D, PixelShuffle1D
+from .pixelshuffle1d import PixelUnshuffle1D, PixelShuffle1D
 from k_diffusion.layers import FourierFeatures
 
 
