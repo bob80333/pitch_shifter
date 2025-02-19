@@ -1,10 +1,10 @@
 import torch
 from auraloss.time import SISDRLoss
 from pathlib import Path
-from data import PreShiftedAudioDataset
+from data.data import PreShiftedAudioDataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from model_1d_v2 import WavUNet
+from model.model_1d_v2 import WavUNet
 
 if __name__ == "__main__":
 
