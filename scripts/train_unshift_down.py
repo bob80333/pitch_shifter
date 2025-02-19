@@ -1,7 +1,7 @@
 from muon import Muon
 import torch
 from pitch_shifter.model.model_1d_v2 import WavUNet
-from data.data import PreShiftedDownAudioDataset
+from pitch_shifter.data.data import PreShiftedDownAudioDataset
 from torch.utils.data import DataLoader
 from pathlib import Path
 import argparse
