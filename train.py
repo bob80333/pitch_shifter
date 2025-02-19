@@ -56,21 +56,23 @@ def main(args):
     model = WavUNet()
     model.to(device)
 
-    # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
-    muon_params = [p for p in model.parameters() if p.ndim >= 2]
-    # Find everything else -- these will be optimized by AdamW
-    adamw_params = [p for p in model.parameters() if p.ndim < 2]
-    # Create the optimizer
-    optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
-                    adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
+    opt_model = torch.compile(model)
 
-    heavyball.utils.compile_mode = None # disable triton compiling on windows
+    # # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
+    # muon_params = [p for p in model.parameters() if p.ndim >= 2]
+    # # Find everything else -- these will be optimized by AdamW
+    # adamw_params = [p for p in model.parameters() if p.ndim < 2]
+    # # Create the optimizer
+    # optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
+    #                 adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
+
+    #heavyball.utils.compile_mode = None # disable triton compiling on windows
 
     #optimizer = ForeachPSGDKron(model.parameters(), lr=5e-4, beta = 0.95, weight_decay=0.01)
 
     #optimizer = ForeachSOAP(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
 
-    #optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
 
     train_files = list(Path("data/train_processed_v2").rglob("*.wav"))
     print(f"Found {len(train_files)} training files")
@@ -123,7 +125,7 @@ def main(args):
         shifted_audio = shifted_audio.unsqueeze(1)
 
         # predict differences to fix the input audio
-        unshifted_audio = model(shifted_audio)
+        unshifted_audio = opt_model(shifted_audio)
 
         # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
         #loss = stft_loss(unshifted_audio, audio)
@@ -171,7 +173,7 @@ def main(args):
                     shifted_audio = shifted_audio.unsqueeze(1)
                                         
                     # remove pitch artifacts from shifted audio
-                    unshifted_audio = model(shifted_audio)
+                    unshifted_audio = opt_model(shifted_audio)
 
                     # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
                     val_loss = stft_loss(unshifted_audio, audio)
@@ -214,7 +216,7 @@ if __name__ == "__main__":
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=6)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output81" )
+    argparser.add_argument("--save_dir", type=str, default="outputs/output82" )
 
     args = argparser.parse_args()
 

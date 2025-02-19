@@ -90,7 +90,8 @@ class PreShiftedAudioDataset(Dataset):
 
     def __getitem__(self, idx):
         shifted_file = self.preprocessed_files[idx]
-        original_file = shifted_file.replace(".wav", "_baseline.wav")
+        # find second last underscore to get original file
+        original_file = shifted_file[:shifted_file.rindex("_", 0, shifted_file.rindex("_"))] + "_baseline.wav"
         try:
             audio, sr = soundfile.read(original_file)
             shifted_audio, sr = soundfile.read(shifted_file)

@@ -479,3 +479,18 @@ also reduce val length from 16x to 12x 16k, the >5 seconds length ends up creati
 pretty good results
 output81
 
+installed triton for windows, see how much faster training goes
+train for 5k steps, muon should be compiled.  based on previous test the model inferences a batch at ~19it/s
+so ideally training speed is 1/3 that, but loss/optim takes some time
+training at ~4.2-4.3 it/s
+now trying compiling the model
+when testing on inference in the model testing code, speeds up model by ~2x to ~35it/s!
+only speeds up training to ~5it/s
+either optimizer has large overhead
+or mel loss has large overhead
+without mel loss gets to ~5.5it/s
+without mel loss and without muon (AdamW, but not fused adam) gtes to ~8.1-8.2it/s
+adamw with mel loss gets ~7.1-7.2it/s (fused has similar speed)
+so muon has large overhead here
+let's try adamw for 100k steps to see if with enough steps it approaches muon results
+output82
