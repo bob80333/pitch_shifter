@@ -1,7 +1,7 @@
 from muon import Muon
 import torch
-from model_1d_v2 import WavUNet
-from data import PreShiftedAudioDataset
+from model.model_1d_v2 import WavUNet
+from data.data import PreShiftedAudioDataset
 from torch.utils.data import DataLoader
 from pathlib import Path
 import argparse
@@ -75,12 +75,12 @@ def main(args):
     g_optim = torch.optim.AdamW(model.parameters(), lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01)
     d_optim = torch.optim.AdamW(disc.parameters(), lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01)
 
-    train_files = list(Path("data/train_processed").rglob("*.wav"))
+    train_files = list(Path("dataset_dir/train_processed").rglob("*.wav"))
     print(f"Found {len(train_files)} training files")
     train_dataset = PreShiftedAudioDataset(train_files)
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
 
-    val_files = list(Path("data/val_processed").rglob("*.wav"))
+    val_files = list(Path("dataset_dir/val_processed").rglob("*.wav"))
     print(f"Found {len(val_files)} validation files")
     val_dataset = PreShiftedAudioDataset(val_files, test=True, samples=16384*4)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
@@ -235,7 +235,7 @@ if __name__ == "__main__":
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=16)
     argparser.add_argument("--n_workers", type=int, default=3)
-    argparser.add_argument("--save_dir", type=str, default="outputs_gan/output10" )
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs_gan/output10" )
 
     args = argparser.parse_args()
 

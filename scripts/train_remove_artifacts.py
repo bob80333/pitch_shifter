@@ -71,12 +71,12 @@ def main(args):
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
 
-    train_files = list(Path("data/train_processed_v2").rglob("*.wav"))
+    train_files = list(Path("dataset_dir/train_processed_v2").rglob("*.wav"))
     print(f"Found {len(train_files)} training files")
     train_dataset = PreShiftedAudioDataset(train_files, samples=16384*3)
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
 
-    val_files = list(Path("data/val_processed_v2").rglob("*.wav"))
+    val_files = list(Path("dataset_dir/val_processed_v2").rglob("*.wav"))
     print(f"Found {len(val_files)} validation files")
     val_dataset = PreShiftedAudioDataset(val_files, test=True, samples=16384*12)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
@@ -213,7 +213,7 @@ if __name__ == "__main__":
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=6)
-    argparser.add_argument("--save_dir", type=str, default="outputs/output82" )
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output82" )
 
     args = argparser.parse_args()
 
