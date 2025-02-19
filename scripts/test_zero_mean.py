@@ -8,7 +8,7 @@ from model.model_1d_v2 import WavUNet
 
 if __name__ == "__main__":
 
-    val_files = list(Path("data/val_processed").rglob("*.wav"))
+    val_files = list(Path("dataset_dir/val_processed").rglob("*.wav"))
     print(f"Found {len(val_files)} validation files")
     val_dataset = PreShiftedAudioDataset(val_files, test=True, samples=16384*16)
     val_dataloader = DataLoader(val_dataset, batch_size=16, shuffle=False, drop_last=True, num_workers=0)
