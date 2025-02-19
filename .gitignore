@@ -1,9 +1,9 @@
 # data
-data/
+dataset_dir/
 *.wav
 # outputs
-outputs/
-outputs_gan/
+runs/
+example/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

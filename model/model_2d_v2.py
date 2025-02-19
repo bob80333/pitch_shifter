@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchaudio.transforms as T
-from pixelshuffle1d import PixelUnshuffle1D, PixelShuffle1D
 from k_diffusion.layers import FourierFeatures
 
 
@@ -19,15 +18,13 @@ class DownsampleWithSkip(nn.Module):
         # calculate kernel size
         # factor = 2 -> kernel_size = 3, padding = 1
         # factor = 1 -> kernel_size = 1, padding = 0
-        if factor == 8:
-            kernel = 16
-        elif factor == 4:
-            kernel = 8
+        if factor == 4:
+            kernel = 5
         elif factor == 2:
-            kernel = 4
+            kernel = 3
         else:
             kernel = 1
-        self.conv = nn.Conv1d(
+        self.conv = nn.Conv2d(
             in_channels,
             out_channels,
             kernel_size=kernel,
@@ -36,7 +33,7 @@ class DownsampleWithSkip(nn.Module):
         )
 
         if skip == "pixel_shuffle":
-            self.skip = PixelUnshuffle1D(factor)
+            self.skip = nn.PixelUnshuffle(factor)
         else:
             self.skip = nn.Identity()
 
@@ -53,8 +50,10 @@ class DownsampleWithSkip(nn.Module):
                 res.size(1) // self.avg_channels,
                 self.avg_channels,
                 res.size(2),
+                res.size(3),
             )
             res = res.mean(dim=2)
+
         return x + res
 
 
@@ -66,15 +65,13 @@ class UpsampleWithSkip(nn.Module):
         # calculate kernel size
         # factor = 2 -> kernel_size = 3, padding = 1
         # factor = 1 -> kernel_size = 1, padding = 0
-        if factor == 8:
-            kernel = 16
-        elif factor == 4:
+        if factor == 4:
             kernel = 8
         elif factor == 2:
             kernel = 4
         else:
             kernel = 1
-        self.conv = nn.ConvTranspose1d(
+        self.conv = nn.ConvTranspose2d(
             in_channels,
             out_channels,
             kernel_size=kernel,
@@ -83,7 +80,7 @@ class UpsampleWithSkip(nn.Module):
         )
 
         if skip == "pixel_shuffle":
-            self.skip = PixelShuffle1D(factor)
+            self.skip = nn.PixelShuffle(factor)
         else:
             self.skip = nn.Identity()
 
@@ -95,10 +92,10 @@ class UpsampleWithSkip(nn.Module):
         res = self.skip(res)
         if self.dup_channels > 1:
             # duplicate dup_channels factor of channels
-            res = res.view(res.size(0), res.size(1), 1, res.size(2))
-            res = res.expand(-1, -1, self.dup_channels, -1)
+            res = res.view(res.size(0), res.size(1), 1, res.size(2), res.size(3))
+            res = res.expand(-1, -1, self.dup_channels, -1, -1)
             res = res.contiguous().view(
-                res.size(0), res.size(1) * self.dup_channels, res.size(3)
+                res.size(0), res.size(1) * self.dup_channels, res.size(3), res.size(4)
             )
 
         return x + res
@@ -108,8 +105,8 @@ class ConvNextBlock(nn.Module):
     def __init__(self, channels, expansion=4, layer_scale_init=1e-6):
         super().__init__()
 
-        self.dw_conv = nn.Conv1d(
-            channels, channels, kernel_size=41, padding=20, groups=channels
+        self.dw_conv = nn.Conv2d(
+            channels, channels, kernel_size=7, padding=3, groups=channels
         )
 
         self.norm = nn.LayerNorm(channels)
@@ -128,7 +125,7 @@ class ConvNextBlock(nn.Module):
     def forward(self, x):
         res = x
         x = self.dw_conv(x)
-        x = x.permute(0, 2, 1).contiguous()
+        x = x.permute(0, 2, 3, 1).contiguous()
         x = self.norm(x)
         x = self.pw_conv1(x)
         x = self.act(x)
@@ -137,7 +134,7 @@ class ConvNextBlock(nn.Module):
         if self.gamma is not None:
             x = x * self.gamma
 
-        x = x.permute(0, 2, 1).contiguous()
+        x = x.permute(0, 3, 1, 2).contiguous()
 
         return x + res
 
@@ -158,6 +155,7 @@ class Encoder(nn.Module):
                 )
             )
 
+
     def forward(self, x):
         residuals = [x]
         for block in self.blocks:
@@ -165,8 +163,7 @@ class Encoder(nn.Module):
             if isinstance(block, DownsampleWithSkip):
                 residuals.append(x)
 
-        # remove last residual
-        residuals.pop()
+        residuals.pop() # remove last residual
 
         return x, residuals
 
@@ -188,29 +185,28 @@ class Decoder(nn.Module):
             for _ in range(blocks[i - 1]):
                 self.blocks.append(ConvNextBlock(channels[i]))
 
-            self.blocks.append(nn.Conv1d(channels[i] * 2, channels[i], 1))
+            self.blocks.append(nn.Conv2d(channels[i]*2, channels[i], kernel_size=1))
 
 
     def forward(self, x, residuals):
         for block in self.blocks:
             # skip conv
-            if isinstance(block, nn.Conv1d):
-                x = torch.cat([x, residuals.pop()], dim=1)
-                
+            if isinstance(block, nn.Conv2d):
+                x = torch.cat([x, residuals.pop()], dim=1)                
             x = block(x)
 
         return x
 
 
-class WavUNet(nn.Module):
+class UNet(nn.Module):
     def __init__(self, channels=None, blocks=None):
         super().__init__()
 
         if channels is None:
-            channels = [8, 32, 128, 256, 512]
-            blocks = [1, 3, 4, 4]
-            factors = [8, 8, 4, 2]
-            scale_vs_channels = [2, 2, 2, 1]
+            channels = [4, 16, 32, 128, 512]
+            blocks = [1, 2, 2, 2]
+            factors = [4, 2, 2, 2]
+            scale_vs_channels = [4, 2, 1, 1]
 
             bottleneck_blocks = 4
 
@@ -218,14 +214,12 @@ class WavUNet(nn.Module):
         self.decoder = Decoder(
             channels[::-1], blocks[::-1], factors[::-1], scale_vs_channels[::-1]
         )
-
         self.bottleneck = nn.Sequential(*[ConvNextBlock(channels[-1]) for _ in range(bottleneck_blocks)])
 
-        self.conv_in = nn.Conv1d(1, channels[0], 5, padding=2)
-        self.conv_out = nn.Conv1d(channels[0], 1, 5, padding=2)
+        self.conv_in = nn.Conv2d(2, channels[0], kernel_size=3, padding=1)
+        self.conv_out = nn.Conv2d(channels[0], 2, kernel_size=3, padding=1)
 
     def forward(self, x):
-        noised = x
         x = self.conv_in(x)
         x, residuals = self.encoder(x)
         x = self.bottleneck(x)
@@ -235,29 +229,57 @@ class WavUNet(nn.Module):
         return x
 
 
-if __name__ == "__main__":
-    model = WavUNet().to("cuda")
-    opt_model = torch.compile(model)
+class AudioUNet(nn.Module):
+    def __init__(self):
+        super().__init__()
 
-    # tf32
-    torch.backends.cuda.matmul.allow_tf32 = True
+        self.autoenc = UNet()
+        self.to_spec = T.Spectrogram(1022, 1022, 256, power=None)
+        self.to_wav = T.InverseSpectrogram(1022, 1022, 256)
+
+    def forward(self, x):
+        # calculate padding
+        pad = 0
+        #if (x.shape[-1] + 512) % 8192 != 0:
+        #    pad = 8192 - (x.shape[-1] + 512) % 8192
+        #x = F.pad(x, (0, pad))
+        x = self.to_spec(x)
+
+        x = torch.view_as_real(x)
+        x = x.permute(0, 3, 1, 2)
+
+        y = self.autoenc(x)
+
+        y = y.permute(0, 2, 3, 1).contiguous()
+        y = torch.view_as_complex(y)
+        y = self.to_wav(y)
+        #if pad > 0:
+        #    y = y[:, :-pad]
+
+        return y
+
+
+if __name__ == "__main__":
+    model = AudioUNet().to("cuda")
+    opt_model = torch.compile(model)
     # print # model params
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"# params: {params/1e6:.2f}M")
-    x = torch.randn(32, 1, 16384*3).to("cuda")
-    print(x.shape)
+    
     from time import time
     from tqdm import trange
+
     # warmup
     with torch.no_grad():
-        for _ in trange(50):
-            x = torch.randn(32, 1, 16384*3).to("cuda")
+        for _ in trange(10):
+            # 191*256, the spectrogram pads by 256 to 49152, giving exactly 512x192 2D shape
+            x = torch.randn(32, 48896).to("cuda")
             y = opt_model(x)
 
     with torch.no_grad():
         start = time()
-        for _ in trange(200):
-            x = torch.randn(32, 1, 16384*3).to("cuda")
+        for _ in trange(250):
+            x = torch.randn(32, 48896).to("cuda")
             y = opt_model(x)
         end = time()
     print("Input shape", x.shape, "Output shape", y.shape)
