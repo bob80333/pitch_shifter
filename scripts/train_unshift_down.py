@@ -119,7 +119,7 @@ def main(args):
         audio = audio.unsqueeze(1)
         shifted_audio = shifted_audio.unsqueeze(1)
 
-        # predict differences to fix the input audio
+        # predict fixed input audio
         unshifted_audio = opt_model(shifted_audio)
 
         # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
@@ -211,7 +211,7 @@ if __name__ == "__main__":
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=6)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs_unshift_down/output0" )
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs_unshift_down/output9" )
 
     args = argparser.parse_args()
 

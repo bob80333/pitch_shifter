@@ -207,12 +207,12 @@ class WavUNet(nn.Module):
         super().__init__()
 
         if channels is None:
-            channels = [8, 32, 128, 256, 512]
-            blocks = [1, 3, 4, 4]
-            factors = [8, 8, 4, 2]
-            scale_vs_channels = [2, 2, 2, 1]
+            channels = [8, 16, 32, 64, 128, 256, 512]
+            blocks = [1, 3, 3, 3, 3, 3]
+            factors = [2, 4, 2, 4, 2, 4]
+            scale_vs_channels = [1, 2, 1, 2, 1, 2]
 
-            bottleneck_blocks = 4
+            bottleneck_blocks = 3
 
         self.encoder = Encoder(channels, blocks, factors, scale_vs_channels)
         self.decoder = Decoder(
@@ -237,6 +237,7 @@ class WavUNet(nn.Module):
 
 if __name__ == "__main__":
     model = WavUNet().to("cuda")
+    print(model)
     opt_model = torch.compile(model)
 
     # tf32
