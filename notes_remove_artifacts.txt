@@ -494,3 +494,35 @@ adamw with mel loss gets ~7.1-7.2it/s (fused has similar speed)
 so muon has large overhead here
 let's try adamw for 100k steps to see if with enough steps it approaches muon results
 output82
+
+since the unshift_down work has found a better architecture setup, inspired by the DAC setup, let's see if it works better for removing artifacts as well.
+and switch back to muon for it
+# params: 34.92M
+channels = [48, 96, 192, 384, 768]
+blocks = [3, 3, 3, 3]
+factors = [2, 2, 4, 8]
+scale_vs_channels = [1, 1, 2, 4]
+
+bottleneck_blocks = 3
+
+patching = 4
+output83
+short run to test it out, 10k steps instead of usual 100k
+a little worse than output81
+
+maybe try alternative option:
+less patching, but fewer channels to maintain speed
+channels = [16, 32, 128, 256, 512]
+blocks = [3, 3, 3, 3]
+factors = [2, 4, 4, 8]
+scale_vs_channels = [1, 1, 2, 4]
+
+bottleneck_blocks = 3
+
+patching = 2
+output84
+trains faster than other option
+decent results
+
+try 100k
+output85

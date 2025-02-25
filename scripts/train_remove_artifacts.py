@@ -1,8 +1,8 @@
 from muon import Muon
 import torch
-from model.model_2d import AudioUNet
-from model.model_1d_v2 import WavUNet
-from data.data import PreShiftedAudioDataset
+from pitch_shifter.model.model_2d import AudioUNet
+from pitch_shifter.model.model_1d_v2 import WavUNet
+from pitch_shifter.data.data import PreShiftedAudioDataset
 from torch.utils.data import DataLoader
 from pathlib import Path
 import argparse
@@ -55,13 +55,13 @@ def main(args):
 
     opt_model = torch.compile(model)
 
-    # # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
-    # muon_params = [p for p in model.parameters() if p.ndim >= 2]
-    # # Find everything else -- these will be optimized by AdamW
-    # adamw_params = [p for p in model.parameters() if p.ndim < 2]
-    # # Create the optimizer
-    # optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
-    #                 adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
+    # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
+    muon_params = [p for p in model.parameters() if p.ndim >= 2]
+    # Find everything else -- these will be optimized by AdamW
+    adamw_params = [p for p in model.parameters() if p.ndim < 2]
+    # Create the optimizer
+    optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
+                    adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
 
     #heavyball.utils.compile_mode = None # disable triton compiling on windows
 
@@ -69,7 +69,7 @@ def main(args):
 
     #optimizer = ForeachSOAP(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
 
     train_files = list(Path("dataset_dir/train_processed_v2").rglob("*.wav"))
     print(f"Found {len(train_files)} training files")
@@ -213,7 +213,7 @@ if __name__ == "__main__":
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=6)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output82" )
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output85" )
 
     args = argparser.parse_args()
 
