@@ -29,7 +29,7 @@ shifted = resample(torch.from_numpy(shifted_up).unsqueeze(0), sr*2, sr).squeeze(
 sf.write("shifted.wav", shifted, sr)
 
 import torch
-from model.model_1d_v2 import WavUNet
+from pitch_shifter.model.model_1d import WavUNet
 
 model = WavUNet().to("cuda")
 model.load_state_dict(torch.load("outputs/output81/model_100000.pt"))
