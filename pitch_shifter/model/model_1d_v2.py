@@ -3,7 +3,23 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchaudio.transforms as T
 from pitch_shifter.model.pixelshuffle1d import PixelUnshuffle1D, PixelShuffle1D
-from k_diffusion.layers import FourierFeatures
+
+def snake(x, alpha):
+    shape = x.shape
+    x = x.reshape(shape[0], shape[1], -1)
+    x = x + (alpha + 1e-9).reciprocal() * torch.sin(alpha * x).pow(2)
+    x = x.reshape(shape)
+    return x
+
+
+class Snake1d(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        # channels last
+        self.alpha = nn.Parameter(torch.ones(1, 1, channels))
+
+    def forward(self, x):
+        return snake(x, self.alpha)
 
 
 class DownsampleWithSkip(nn.Module):
@@ -105,14 +121,14 @@ class UpsampleWithSkip(nn.Module):
 
 
 class ConvNextBlock(nn.Module):
-    def __init__(self, channels, expansion=4, layer_scale_init=1e-6):
+    def __init__(self, channels, expansion=4, layer_scale_init=1e-6, kernel=7):
         super().__init__()
 
         self.dw_conv = nn.Conv1d(
-            channels, channels, kernel_size=41, padding=20, groups=channels
+            channels, channels, kernel_size=kernel, padding=(kernel-1)//2, groups=channels
         )
 
-        self.norm = nn.LayerNorm(channels)
+        #self.norm = nn.LayerNorm(channels)
 
         self.pw_conv1 = nn.Linear(channels, channels * expansion)
         self.pw_conv2 = nn.Linear(channels * expansion, channels)
@@ -129,7 +145,7 @@ class ConvNextBlock(nn.Module):
         res = x
         x = self.dw_conv(x)
         x = x.permute(0, 2, 1).contiguous()
-        x = self.norm(x)
+        #x = self.norm(x)
         x = self.pw_conv1(x)
         x = self.act(x)
         x = self.pw_conv2(x)
@@ -145,10 +161,12 @@ class Encoder(nn.Module):
     def __init__(self, channels, blocks, factors, scale_vs_channels):
         super().__init__()
 
+        kernels = [7, 23, 41]
+
         self.blocks = nn.ModuleList()
         for i in range(len(channels) - 1):
-            for _ in range(blocks[i]):
-                self.blocks.append(ConvNextBlock(channels[i]))
+            for j in range(blocks[i]):
+                self.blocks.append(ConvNextBlock(channels[i], kernel=kernels[j]))
             self.blocks.append(
                 DownsampleWithSkip(
                     channels[i],
@@ -175,6 +193,8 @@ class Decoder(nn.Module):
     def __init__(self, channels, blocks, factors, scale_vs_channels):
         super().__init__()
 
+        kernels = [7, 23, 41]
+
         self.blocks = nn.ModuleList()
         for i in range(1, len(channels)):
             self.blocks.append(
@@ -185,8 +205,8 @@ class Decoder(nn.Module):
                     factor=factors[i - 1],
                 )
             )
-            for _ in range(blocks[i - 1]):
-                self.blocks.append(ConvNextBlock(channels[i]))
+            for j in range(blocks[i - 1]):
+                self.blocks.append(ConvNextBlock(channels[i], kernel=kernels[j]))
 
             self.blocks.append(nn.Conv1d(channels[i] * 2, channels[i], 1))
 
@@ -207,12 +227,14 @@ class WavUNet(nn.Module):
         super().__init__()
 
         if channels is None:
-            channels = [8, 16, 32, 64, 128, 256, 512]
-            blocks = [1, 3, 3, 3, 3, 3]
-            factors = [2, 4, 2, 4, 2, 4]
-            scale_vs_channels = [1, 2, 1, 2, 1, 2]
+            channels = [16, 32, 128, 256, 512]
+            blocks = [3, 3, 3, 3]
+            factors = [2, 4, 4, 8]
+            scale_vs_channels = [1, 1, 2, 4]
 
             bottleneck_blocks = 3
+
+            patching = 2
 
         self.encoder = Encoder(channels, blocks, factors, scale_vs_channels)
         self.decoder = Decoder(
@@ -221,25 +243,34 @@ class WavUNet(nn.Module):
 
         self.bottleneck = nn.Sequential(*[ConvNextBlock(channels[-1]) for _ in range(bottleneck_blocks)])
 
-        self.conv_in = nn.Conv1d(1, channels[0], 5, padding=2)
-        self.conv_out = nn.Conv1d(channels[0], 1, 5, padding=2)
+        self.in_patch = PixelUnshuffle1D(patching)
+        self.out_patch = PixelShuffle1D(patching)
+
+        self.conv_in = nn.Conv1d(patching, channels[0], 5, padding=2)
+        self.conv_out = nn.Conv1d(channels[0], patching, 5, padding=2)
 
     def forward(self, x):
-        noised = x
+        x = self.in_patch(x)
         x = self.conv_in(x)
         x, residuals = self.encoder(x)
         x = self.bottleneck(x)
         x = self.decoder(x, residuals)
         x = self.conv_out(x)
+        x = self.out_patch(x)
 
         return x
+    
+    def apply_weightnorm(self):
+        # replace each conv1d and linear with weight normalized version
+        for module in self.modules():
+            if isinstance(module, (nn.Conv1d, nn.Linear)):
+                nn.utils.weight_norm(module)
 
 
 if __name__ == "__main__":
     model = WavUNet().to("cuda")
     print(model)
     opt_model = torch.compile(model)
-
     # tf32
     torch.backends.cuda.matmul.allow_tf32 = True
     # print # model params

@@ -168,3 +168,128 @@ outputs_unshift_down/output9
 results still not great
 
 overall pitch shifting seems like quite the difficult task for this model to learn
+
+
+new idea:
+speed comes from reducing the # of samples quickly, quality comes from having blocks at original sample res
+
+what if we do a 4x pixelshuffle1d down initially, before even the input / output convs
+so then we have 4 channels, of 1/4 resolution.
+basically like patching
+should give us nice speedup, and we can increase # of channels and blocks at highest res due to the downsampling making it more efficient
+and then we do this after
+
+channels = [16, 32, 64, 128, 512]
+blocks = [3, 3, 3, 3]
+factors = [2, 2, 4, 8]
+scale_vs_channels = [1, 1, 2, 2]
+# params: 9.78M
+
+outputs_unshift_down/output10
+<7GB vram
+pretty fast model, hopefully performs well
+performs better than output7, around on par with output9 but faster and lighter
+maybe instead of 4x down just 2x down?
+35 minutes to train
+
+should still be pretty fast but maybe better results
+outputs_unshift_down/output11
+good results, still has speedup
+56 minutes to train
+
+maybe not enough channels for the downsampling?
+try 4x down but more channels:
+channels = [32, 64, 128, 256, 512]
+blocks = [3, 3, 3, 3]
+factors = [2, 2, 4, 8]
+scale_vs_channels = [1, 1, 2, 4]
+4x down
+runs/outputs_unshift_down/output12
+# params: 15.67M
+40 minutes to train
+
+decent, but not quite at the level of output11
+
+now new thoughts:
+for most audio model only norm is weightnorm
+no layernorm / instancenorm / batchnorm
+basically all of them hurt results
+this model uses layernorm due to convnext doing so
+let's try removing it and see what happens
+could maybe add weightnorm if it breaks everything
+also maybe try replacing the GELU with snake/snakebeta activations which is supposed to be good for audio
+
+keep output12 setup for now since it trains decently quick and also has decent results
+
+runs/outputs_unshift_down/output13 no layernorm
+similar results, maybe a little worse? no loss explosion or anything
+slower for a while, but basically catches up at the end
+maybe slightly spikier (both lower and higher) grad norm
+
+try with weightnorm?
+since literally everything uses it
+
+runs/outputs_unshift_down/output14 no layernorm, added weightnorm
+basically same results, but slower
+spikier validations
+43 minutes to train
+
+so keep no layernorm, its faster and same results
+
+next add snake activation, the DAC paper shows a nice improvement switching from LRELU to it
+like from 6.92 si-sdr to 9.12 si-sdr, so like 2.2 si-sdr improvement just from snake activation
+
+only activation in model is GELU, so replace it with snake
+runs/outputs_unshift_down/output15
+# params: 15.68M
+overall, doing worse than with GELU.
+
+ablate kernel size in convnext block:
+1) kernel = 7 (like original convnext / same as dac)
+2) kernel = 23 (bigger, but between current choice and original)
+3) kernel = 41 (current choice)
+4) kernel = 97 (biggest prime under 97, also close to 2x to see if larger helps)
+
+finally:
+scale up kernels with block
+so:
+block1 = 7
+block2 = 23
+block3 = 41
+
+first, kernel=7
+runs/outputs_unshift_down/output16
+a few minutes faster
+maybe a little worse results
+worse si-sdr, same stft
+
+second kernel = 23
+runs/outputs_unshift_down/output17
+
+kernel=41 is baseline, output13
+
+kernel = 97
+runs/outputs_unshift_down/output18
+
+now blocks = 7, block2 = 23, block3 = 41
+runs/outputs_unshift_down/output19
+good results, better than all the rest and a bit faster due to smaller kernels on first 2 blocks
+
+what if 4 blocks, and 4th block was the 97 kernel?
+runs/outputs_unshift_down/output20
+# params: 19.15M
+worse results and decently slower
+
+take the output19 setup but increase width again:
+channels = [48, 96, 192, 384, 768]
+blocks = [3, 3, 3, 3]
+factors = [2, 2, 4, 8]
+scale_vs_channels = [1, 1, 2, 4]
+
+bottleneck_blocks = 3
+
+patching = 4
+kernels = [7, 23, 41]
+# params: 34.92M
+runs/outputs_unshift_down/output21
+
