@@ -524,5 +524,134 @@ output84
 trains faster than other option
 decent results
 
-try 100k
+muon has had an update, adds weight decay, try it out
+had to fix by commenting out distributed stuff
+also terrible results
+reverted to commit 92bc50fb8749f12cd3869ce60c984c3bbe844cf5
+and it works again
+trying commit 28c793b55ef1cf86e5d6091bfbdbe0029b11eabb (next commit)
+works fine
+trying commit eb225792d1da44848dff39f9fac9758a71ee3f18 (next commit)
+doesn't work (due to distributed stuff)
+trying commit fc20399079ef3570ecf7ba2f12cbb82cc3464e86 (next muon.py commit)
+breaks, but had to comment out some code about all gather
+maybe need to actually do distributed stuff
+can't on windows
+modified the code to work without all gather, see how it does
 output85
+not as good :/
+big spike in grad norm, loss is worse and has a small bump
+
+try 2 of modification 
+output86
+still not working
+initially gets ok si-sdr but then just fails to learn
+
+
+swap to local editable install
+latest commit + my modification for non distributed
+output87
+
+learns, but is noticably worse
+loss is pretty similar but a bit worse
+val metrics are worse and they aren't improving
+handful of large spikes in grad norm
+
+checkout commit 92bc50fb8749f12cd3869ce60c984c3bbe844cf5
+try that
+output 88 
+works
+
+ok, got advice from eleutherai discord
+wrapped convs in class that reshapes the weights
+since new muon handles 3d weights differently now
+now trying to train with that setup
+output89
+works! and results are slightly better!
+
+For average improvement benchmark
+with output84:
+ E:\pitch_shifter> python .\scripts\evaluate_remove_artifacts.py
+(312944,) 48000
+Step:  1000
+Average improvements: Model - -4.64016886295264 Subtraction - -13.569113724843126
+Step:  2000
+Average improvements: Model - -4.604981892745814 Subtraction - -13.569113724843126
+Step:  3000
+Average improvements: Model - -9.264409568461618 Subtraction - -13.569113724843126
+Step:  4000
+Average improvements: Model - -4.92021777790467 Subtraction - -13.569113724843126
+Step:  5000
+Average improvements: Model - -5.6688230394693395 Subtraction - -13.569113724843126
+Step:  6000
+Step:  7000
+Average improvements: Model - -8.447322318212168 Subtraction - -13.569113724843126
+Step:  8000
+Average improvements: Model - -11.264506773855418 Subtraction - -13.569113724843126
+Step:  9000
+Average improvements: Model - -9.866973060463645 Subtraction - -13.569113724843126
+Step:  10000
+Average improvements: Model - -10.613895883690292 Subtraction - -13.569113724843126
+
+
+With output89:
+E:\pitch_shifter> python .\scripts\evaluate_remove_artifacts.py
+(312944,) 48000
+Step:  1000
+Average improvements: Model - 0.31719582521259504 Subtraction - -13.569113724843126
+Step:  2000
+Average improvements: Model - -1.5929669580740597 Subtraction - -13.569113724843126
+Step:  3000
+Average improvements: Model - -4.639959124448916 Subtraction - -13.569113724843126
+Step:  4000
+Average improvements: Model - -5.794628661815162 Subtraction - -13.569113724843126
+Step:  5000
+Average improvements: Model - -10.138142818013568 Subtraction - -13.569113724843126
+Step:  6000
+Average improvements: Model - -7.555109908064983 Subtraction - -13.569113724843126
+Step:  7000
+Average improvements: Model - -6.107469998312544 Subtraction - -13.569113724843126
+Step:  8000
+Average improvements: Model - -8.13147475796058 Subtraction - -13.569113724843126
+Step:  9000
+Average improvements: Model - -7.005445790777264 Subtraction - -13.569113724843126
+Step:  10000
+Average improvements: Model - -6.731054338322272 Subtraction - -13.569113724843126
+
+
+Better at most steps, at step 1000 has a slightly positive score!
+
+
+Now, output90
+same as output89, with updated muon
+and using the new feature, weight decay in muon!
+I had set it to 0 for testing, but default is 0.01, and the LLM muon 2x speed paper found it critical
+so setting it to 0.01, same as adamw
+
+similar results, which is good / expected
+should only really come into play in longer runs to reduce overfitting
+
+PS E:\pitch_shifter> python .\scripts\evaluate_remove_artifacts.py
+(312944,) 48000
+Step:  1000
+Average improvements: Model - -3.3375640283382975 Subtraction - -13.56
+Step:  2000
+Average improvements: Model - -9.085865686564793 Subtraction - -13.569
+Step:  3000
+Average improvements: Model - -6.631856726540372 Subtraction - -13.569
+Step:  4000
+Average improvements: Model - -9.119680613752772 Subtraction - -13.569
+Step:  5000
+Average improvements: Model - -8.239379045059371 Subtraction - -13.569
+Step:  6000
+Step:  8000
+Average improvements: Model - -2.6199704498009506 Subtraction - -13.563724843126
+Step:  9000
+Average improvements: Model - -7.6327673905560065 Subtraction - -13.563724843126
+Step:  10000
+Average improvements: Model - -6.836417576744688 Subtraction - -13.569724843126
+
+weight decay maybe hurts results a bit early on, should help with longer training
+
+let's try 100k steps
+output91

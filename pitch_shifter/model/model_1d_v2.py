@@ -4,6 +4,52 @@ import torch.nn.functional as F
 import torchaudio.transforms as T
 from pitch_shifter.model.pixelshuffle1d import PixelUnshuffle1D, PixelShuffle1D
 
+# flatten weights for muon optimizer to work correctly
+
+class MyConv1d(nn.Conv1d):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.weight = nn.Parameter(self.weight.data.flatten(1, 2))
+
+    def forward(self, input: torch.Tensor):
+        return self._conv_forward(input, self.weight.view(self.out_channels, self.in_channels // self.groups, -1), self.bias)
+    
+
+class MyConvTranspose1d(nn.ConvTranspose1d):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.weight = nn.Parameter(self.weight.data.flatten(1, 2))
+
+    def forward(self, input: torch.Tensor, output_size=None):
+        if self.padding_mode != "zeros":
+            raise ValueError(
+                "Only `zeros` padding mode is supported for ConvTranspose1d"
+            )
+
+        assert isinstance(self.padding, tuple)
+        # One cannot replace List by Tuple or Sequence in "_output_padding" because
+        # TorchScript does not support `Sequence[T]` or `Tuple[T, ...]`.
+        num_spatial_dims = 1
+        output_padding = self._output_padding(
+            input,
+            output_size,
+            self.stride,  # type: ignore[arg-type]
+            self.padding,  # type: ignore[arg-type]
+            self.kernel_size,  # type: ignore[arg-type]
+            num_spatial_dims,
+            self.dilation,  # type: ignore[arg-type]
+        )
+        return F.conv_transpose1d(
+            input,
+            self.weight.view(self.in_channels, self.out_channels // self.groups, -1),
+            self.bias,
+            self.stride,
+            self.padding,
+            output_padding,
+            self.groups,
+            self.dilation,
+        )
+
 def snake(x, alpha):
     shape = x.shape
     x = x.reshape(shape[0], shape[1], -1)
@@ -43,7 +89,7 @@ class DownsampleWithSkip(nn.Module):
             kernel = 4
         else:
             kernel = 1
-        self.conv = nn.Conv1d(
+        self.conv = MyConv1d(
             in_channels,
             out_channels,
             kernel_size=kernel,
@@ -90,7 +136,7 @@ class UpsampleWithSkip(nn.Module):
             kernel = 4
         else:
             kernel = 1
-        self.conv = nn.ConvTranspose1d(
+        self.conv = MyConvTranspose1d(
             in_channels,
             out_channels,
             kernel_size=kernel,
@@ -124,7 +170,7 @@ class ConvNextBlock(nn.Module):
     def __init__(self, channels, expansion=4, layer_scale_init=1e-6, kernel=7):
         super().__init__()
 
-        self.dw_conv = nn.Conv1d(
+        self.dw_conv = MyConv1d(
             channels, channels, kernel_size=kernel, padding=(kernel-1)//2, groups=channels
         )
 
@@ -208,13 +254,13 @@ class Decoder(nn.Module):
             for j in range(blocks[i - 1]):
                 self.blocks.append(ConvNextBlock(channels[i], kernel=kernels[j]))
 
-            self.blocks.append(nn.Conv1d(channels[i] * 2, channels[i], 1))
+            self.blocks.append(MyConv1d(channels[i] * 2, channels[i], 1))
 
 
     def forward(self, x, residuals):
         for block in self.blocks:
             # skip conv
-            if isinstance(block, nn.Conv1d):
+            if isinstance(block, MyConv1d):
                 x = torch.cat([x, residuals.pop()], dim=1)
                 
             x = block(x)
@@ -246,8 +292,8 @@ class WavUNet(nn.Module):
         self.in_patch = PixelUnshuffle1D(patching)
         self.out_patch = PixelShuffle1D(patching)
 
-        self.conv_in = nn.Conv1d(patching, channels[0], 5, padding=2)
-        self.conv_out = nn.Conv1d(channels[0], patching, 5, padding=2)
+        self.conv_in = MyConv1d(patching, channels[0], 5, padding=2)
+        self.conv_out = MyConv1d(channels[0], patching, 5, padding=2)
 
     def forward(self, x):
         x = self.in_patch(x)
@@ -263,7 +309,7 @@ class WavUNet(nn.Module):
     def apply_weightnorm(self):
         # replace each conv1d and linear with weight normalized version
         for module in self.modules():
-            if isinstance(module, (nn.Conv1d, nn.Linear)):
+            if isinstance(module, (MyConv1d, nn.Linear)):
                 nn.utils.weight_norm(module)
 
 
