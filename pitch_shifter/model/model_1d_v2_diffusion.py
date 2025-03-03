@@ -338,7 +338,7 @@ if __name__ == "__main__":
     # print # model params
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"# params: {params/1e6:.2f}M")
-    x = torch.randn(32, 1, 16384*2).to(device)
+    x = torch.randn(32, 2, 16384*2).to(device) # 2 channels because conditioning audio and noised audio
     print(x.shape)
     t = torch.rand(32, 1).to(device)
     from time import time
@@ -346,13 +346,13 @@ if __name__ == "__main__":
     # warmup
     with torch.no_grad():
         for _ in trange(50):
-            x = torch.randn(32, 1, 16384*2).to(device)
+            x = torch.randn(32, 2, 16384*2).to(device)
             y = opt_model(x, t)
 
     with torch.no_grad():
         start = time()
         for _ in trange(200):
-            x = torch.randn(32, 1, 16384*2).to(device)
+            x = torch.randn(32, 2, 16384*2).to(device)
             y = opt_model(x, t)
         end = time()
     print("Input shape", x.shape, "Output shape", y.shape)

@@ -1,0 +1,19 @@
+Diffusion generally more powerful than single step models
+Since getting poor results for shifting down, diffusion may work better
+
+for initial tests, 1k training steps with eval every 100
+
+output1, poor results
+
+try stratified sampling trick?
+
+output2, still poor results, but seems more stable evals
+
+oh, bug in noising implementation
+not gamma(1 - timestep).sqrt() for noise, it's (1 - gamma(timestep)).sqrt()
+(in training loop)
+this probably the reason the evals are poor, eval is doing something different than training
+
+output3
+
+didn't change results much actually.

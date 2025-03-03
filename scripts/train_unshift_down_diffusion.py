@@ -1,6 +1,6 @@
 from muon import Muon
 import torch
-from pitch_shifter.model.model_1d_v2 import WavUNet
+from pitch_shifter.model.model_1d_v2_diffusion import WavUNet
 from pitch_shifter.data.data import PreShiftedDownAudioDataset
 from torch.utils.data import DataLoader
 from pathlib import Path
@@ -22,6 +22,29 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # performance tweaks
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
+
+
+# from k-diffusion discord channel in eleutherai
+
+import torch.distributed as dist
+
+def stratified_uniform(shape, grad_accum_steps=1, grad_accum_step=0, group=None, world_size=None, rank=None, dtype=None, device=None):
+    """Draws stratified samples from a uniform distribution. The strata are not duplicated
+    across processes or gradient accumulation steps."""
+    if dist.is_available() and dist.is_initialized():
+        world_size = dist.get_world_size(group) if world_size is None else world_size
+        rank = dist.get_rank(group) if rank is None else rank
+    else:
+        world_size = 1 if world_size is None else world_size
+        rank = 0 if rank is None else rank
+    world_size = world_size * grad_accum_steps
+    rank = rank * grad_accum_steps + grad_accum_step
+    n = shape[-1] * world_size
+    start = rank * n // world_size
+    end = (rank + 1) * n // world_size
+    offsets = torch.linspace(0, 1, n + 1, dtype=dtype, device=device)[start:end]
+    u = torch.rand(shape, dtype=dtype, device=device)
+    return torch.clamp(offsets + u / n, 0, 1)
 
 # based off of ddpm step code in lucidrains RIN repo
 
@@ -65,6 +88,7 @@ def generate(steps, noise, model, conditioning):
         # Get time for current and next states.
         t = 1 - step / steps
         timestep = torch.ones(x_t.shape[0], device=device) * t
+        timestep = timestep.unsqueeze(-1)
         t_m1 = max(1 - (step + 1) / steps, 0)
         # Predict eps.
         
@@ -201,21 +225,25 @@ def main(args):
 
         noise = torch.randn_like(shifted_audio)
 
-        timesteps = torch.rand(shifted_audio.shape[0], 1, 1, device=device)
+        timesteps = stratified_uniform((shifted_audio.shape[0], 1, 1), grad_accum_steps=1, grad_accum_step=0, dtype=torch.float32, device=device)
+
+        #timesteps = torch.rand(shifted_audio.shape[0], 1, 1, device=device)
 
         # create input for model
-        x_t = audio * gamma(timesteps).sqrt() + noise * gamma(1 - timesteps).sqrt()
+        x_t = audio * gamma(timesteps).sqrt() + noise * (1 - gamma(timesteps)).sqrt()
 
         # combine input with shifted audio (conditioning)
         conditioned_input = torch.cat([x_t, shifted_audio], dim=1)
 
         # predict fixed input audio
-        unshifted_audio = opt_model(conditioned_input, timesteps)
+
+        # predict noise (eps style)
+        pred_noise = opt_model(conditioned_input, timesteps[:, :, 0])
 
         # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
         # loss = stft_loss(unshifted_audio, audio)
 
-        l1_loss = l1_loss_fn(unshifted_audio, audio)
+        l1_loss = l1_loss_fn(pred_noise, noise)
 
         # loss = cdpam_loss.forward(resampler(audio), resampler(unshifted_audio)).mean()
 
@@ -223,10 +251,13 @@ def main(args):
         # feature_loss = wavlm_loss(unshifted_audio, audio)
 
         # make tensors AudioSignals for MelSpectrogramLoss (takes in tensors, so should preserve gradients)
-        audio = AudioSignal(audio, sr)
-        unshifted_audio = AudioSignal(unshifted_audio, sr)
+        #audio = AudioSignal(audio, sr)
+        #unshifted_audio = AudioSignal(unshifted_audio, sr)
 
-        mel_loss = melspec_loss(unshifted_audio, audio)
+        noise = AudioSignal(noise, sr)
+        pred_noise = AudioSignal(pred_noise, sr)
+
+        mel_loss = melspec_loss(pred_noise, noise)
 
         loss = mel_loss + 10 * l1_loss
         # loss = l1_loss(unshifted_audio, audio)
@@ -262,16 +293,13 @@ def main(args):
                     # add channels dimension for losses calculation
                     audio = audio.unsqueeze(1)
                     shifted_audio = shifted_audio.unsqueeze(1)
-                    
-                    
-                    
 
                     # remove pitch artifacts from shifted audio
                     #unshifted_audio = opt_model(shifted_audio)
                     
                     noise = torch.randn_like(audio)
                     
-                    unshifted_audio = generate(50, noise, opt_model, shifted_audio)
+                    unshifted_audio = generate(100, noise, opt_model, shifted_audio)
 
                     # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
                     val_loss = stft_loss(unshifted_audio, audio)
@@ -284,6 +312,10 @@ def main(args):
                     total_val_sisdr += val_sisdr
                     total_shifted_loss += shifted_loss
                     i += 1
+
+                    # stop after ~100 examples (3 x batch size) (for faster evaluation, since it does 100 steps of diffusion)
+                    if i >= 2:
+                        break
 
                 total_val_loss /= i
                 total_shifted_loss /= i
@@ -312,12 +344,12 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=10_000)
-    argparser.add_argument("--eval_every", type=int, default=1000)
+    argparser.add_argument("--n_steps", type=int, default=1_000)
+    argparser.add_argument("--eval_every", type=int, default=100)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=6)
     argparser.add_argument(
-        "--save_dir", type=str, default="runs/outputs_unshift_down_diffusion/output1"
+        "--save_dir", type=str, default="runs/outputs_unshift_down_diffusion/output3"
     )
 
     args = argparser.parse_args()
