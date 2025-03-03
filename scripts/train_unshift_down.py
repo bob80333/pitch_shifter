@@ -13,8 +13,6 @@ import os
 import torchaudio.transforms as T
 from audiotools.metrics.spectral import MelSpectrogramLoss
 from audiotools.core.audio_signal import AudioSignal
-from heavyball import ForeachPSGDKron, ForeachSOAP
-import heavyball
 import numpy as np
 import random
 
@@ -53,19 +51,16 @@ def main(args):
 
     opt_model = torch.compile(model)
 
-    # # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
+    # for newer version of Muon
+    # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
     muon_params = [p for p in model.parameters() if p.ndim >= 2]
     # Find everything else -- these will be optimized by AdamW
     adamw_params = [p for p in model.parameters() if p.ndim < 2]
     # Create the optimizer
-    optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
-                    adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
-
-    #heavyball.utils.compile_mode = None # disable triton compiling on windows
-
-    #optimizer = ForeachPSGDKron(model.parameters(), lr=5e-4, beta = 0.95, weight_decay=0.01)
-
-    #optimizer = ForeachSOAP(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
+    optimizers = [
+        Muon(muon_params, lr=5e-3, momentum=0.95, weight_decay=0.01),
+        torch.optim.AdamW(adamw_params, lr=5e-4, betas=(0.90, 0.95), weight_decay=0.01),
+    ]
 
     # optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
 
@@ -109,7 +104,9 @@ def main(args):
 
     for step in trange(args.n_steps):
         model.train()
-        optimizer.zero_grad()
+        #optimizer.zero_grad()
+        for optimizer in optimizers:
+            optimizer.zero_grad()
 
         audio, shifted_audio = next(train_gen)
         audio = audio.to(device)
@@ -144,7 +141,9 @@ def main(args):
         # log / clip grad norm
         writer.add_scalar("train/grad_norm", torch.nn.utils.clip_grad_norm_(model.parameters(), 1e3).item(), step+1)
 
-        optimizer.step()
+        #optimizer.step()
+        for optimizer in optimizers:
+            optimizer.step()
 
         writer.add_scalar("train/loss", loss, step+1)
         writer.add_scalar("train/mel_loss", mel_loss, step+1)

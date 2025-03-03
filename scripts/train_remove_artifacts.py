@@ -14,8 +14,6 @@ import os
 import torchaudio.transforms as T
 from audiotools.metrics.spectral import MelSpectrogramLoss
 from audiotools.core.audio_signal import AudioSignal
-from heavyball import ForeachPSGDKron, ForeachSOAP
-import heavyball
 import numpy as np
 import random
 
@@ -64,7 +62,6 @@ def main(args):
     #                 adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
 
     # for newer version of Muon
-    # unfortunately it doesn't work as well
     # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
     muon_params = [p for p in model.parameters() if p.ndim >= 2]
     # Find everything else -- these will be optimized by AdamW
@@ -74,10 +71,6 @@ def main(args):
         Muon(muon_params, lr=5e-3, momentum=0.95, weight_decay=0.01),
         torch.optim.AdamW(adamw_params, lr=5e-4, betas=(0.90, 0.95), weight_decay=0.01),
     ]
-
-    # optimizer = ForeachPSGDKron(model.parameters(), lr=5e-4, beta = 0.95, weight_decay=0.01)
-
-    # optimizer = ForeachSOAP(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
 
     # optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
 
