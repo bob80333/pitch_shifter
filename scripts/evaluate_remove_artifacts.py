@@ -6,6 +6,10 @@ from torchaudio.functional import resample
 from auraloss.time import SISDRLoss
 si_sdr = SISDRLoss()
 import torch
+
+from audiobox_aesthetics.infer import initialize_predictor
+predictor = initialize_predictor()
+
 from pitch_shifter.model.model_1d_v2 import WavUNet
 audio, sr = sf.read("example/p250_003_mic2.flac")
 #audio, sr = sf.read("example/ado_singing.wav")
@@ -17,7 +21,7 @@ stretcher.preset(1, sr)
 
 model = WavUNet().to("cuda")
 
-model_checkpoints = range(1000, 15001, 1000)
+model_checkpoints = range(1000, 100001, 1000)
 
 for checkpoint in model_checkpoints:
     print("Step: ", checkpoint)
@@ -40,6 +44,10 @@ for checkpoint in model_checkpoints:
     shifted_sisdrs = []
     shifted_artifact_removeds = []
     shifted_subtracteds = []
+
+    shifted_pqs = []
+    shifted_artifact_removed_pqs = []
+    shifted_subtracted_pqs = []
 
     for shift in shifts:
         stretcher.setTransposeSemitones(shift)
@@ -79,6 +87,15 @@ for checkpoint in model_checkpoints:
         si_sdr_shifted = -si_sdr(torch.tensor(shifted_down), torch.tensor(audio))
         si_sdr_shifted_no_artifact = -si_sdr(torch.tensor(shifted_down_no_artifact), torch.tensor(audio))
         si_sdr_shifted_subtracted = -si_sdr(torch.tensor(shifted_down_subtracted), torch.tensor(audio))
+        # calculate audiobox metrics
+        with torch.no_grad():
+            pq_shifted = predictor.forward([{"path":torch.from_numpy(shifted_up).float().cuda(), "sample_rate": sr}])[0]["PQ"]
+            pq_shifted_no_artifact = predictor.forward([{"path":torch.from_numpy(shifted_up_no_artifact).unsqueeze(0).float().cuda(), "sample_rate": sr}])[0]["PQ"]
+            pq_shifted_subtracted = predictor.forward([{"path":torch.from_numpy(shifted_up_subtracted).float().cuda(), "sample_rate": sr}])[0]["PQ"]
+
+        shifted_pqs.append(pq_shifted)
+        shifted_artifact_removed_pqs.append(pq_shifted_no_artifact)
+        shifted_subtracted_pqs.append(pq_shifted_subtracted)
 
         shifted_sisdrs.append(si_sdr_shifted.item())
         shifted_artifact_removeds.append(si_sdr_shifted_no_artifact.item())
@@ -101,6 +118,8 @@ for checkpoint in model_checkpoints:
     #print(f"Average si-sdr shifted: {np.mean(shifted_sisdrs)}, si-sdr shifted no artifact: {np.mean(shifted_artifact_removeds)}, si-sdr shifted subtracted: {np.mean(shifted_subtracteds)}")
     #print(f"Median si-sdr shifted: {np.median(shifted_sisdrs)}, si-sdr shifted no artifact: {np.median(shifted_artifact_removeds)}, si-sdr shifted subtracted: {np.median(shifted_subtracteds)}")
     #print(f"Std si-sdr shifted: {np.std(shifted_sisdrs)}, si-sdr shifted no artifact: {np.std(shifted_artifact_removeds)}, si-sdr shifted subtracted: {np.std(shifted_subtracteds)}")
+    # backwards because the shifted_sisdrs are all negative
+    print(f"Average improvements - Model: {(np.mean(shifted_artifact_removeds) - np.mean(shifted_sisdrs))} Subtraction: {(np.mean(shifted_subtracteds) - np.mean(shifted_sisdrs))}")
 
-    print(f"Average improvements: Model - {- (np.mean(shifted_sisdrs) - np.mean(shifted_artifact_removeds))} Subtraction - {- (np.mean(shifted_sisdrs) - np.mean(shifted_subtracteds))}")
+    print(f"Average Production Quality Improvements - Model: {(np.mean(shifted_artifact_removed_pqs) - np.mean(shifted_pqs))} Subtraction: {(np.mean(shifted_subtracted_pqs) - np.mean(shifted_pqs))}")
 
