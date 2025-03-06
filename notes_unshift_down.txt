@@ -292,4 +292,237 @@ patching = 4
 kernels = [7, 23, 41]
 # params: 34.92M
 runs/outputs_unshift_down/output21
+gets best results but slow
 
+new idea: hybrid model like hifi++
+
+spectrogram model and then wav model
+except unlike previous 2d model, the phase will be skipped by spectrogram model and only handled by 1d model
+this is because phase is very different from magnitude, so it's better not handled by spec model
+hopefully is improvement.
+the idea is that the pitch shifting can mostly happen in the spectrogram part, where pitch is mostly represented
+and then the wav part cleans up artifacts / fixes the phase
+Hybrid model uses reduced width for each model, as there are two separate models being run
+results in fewer params.
+# params: 8.61M
+
+wav_channels = [8, 16, 64, 128, 256]
+wav_blocks = [3, 3, 3, 3]
+wav_factors = [2, 4, 4, 8]
+wav_scale_vs_channels = [1, 1, 2, 4]
+wav_bottleneck = 3
+wav_patching = 2
+
+spec_channels = [4, 32, 64, 128, 256]
+spec_blocks = [1, 3, 4, 4]
+spec_factors = [4, 2, 2, 2]
+spec_scale_vs_channels = [2, 2, 2, 2]
+
+runs/outputs_unshift_down/output22
+
+initial headstart, but loses it to early plateau.
+maybe due to lack of parameters vs other models?
+
+
+increase wav channels, see if that helps:
+wav_channels = [16, 32, 128, 256, 512]
+# params: 20.09M
+runs/outputs_unshift_down/output23
+notably, the stft loss is improved, but not really the si-sdr
+with bigger 1d model, gets best stft loss, better si-sdr but still worse than other models, and is slower
+is the 2d model hurting the phase somehow?
+doing some graphing of phase with scripts/example_plot_phase.py
+
+copying phase over from shifted, with original magnitude, and inverted spec gives si-sdr loss of ~2.3 much better than the ~20 currently getting
+(si-sdr loss so lower is better)
+
+still poor results, let's tune 2d model
+
+comment out wav model to speed up training
+2d model only result:
+runs/outputs_unshift_down/output24
+
+noticed that padding has error, is (1, padding) instead of (0, padding) in call
+try (0, padding), see what the difference is
+runs/outputs_unshift_down/output25
+killed a little early, basically same results
+
+tried messing around with copying phase more, results:
+copying phase from shifted while giving good si-sdr sounds terrible
+probably the perfect amplitude reconstruction is why
+random phase sounds fine, but noisy
+0 phase sounds ok, slightly weird but fine otherwise
+brings the si-sdr from ~-2.3 to ~+3.3 and sounds much much better, not perfect, voice sounds a bit weird but way better than copying phase
+so!
+let's try out 2d model, but replace phase with 0s. (future hybrid model may also do this, it may be easier to reconstruct phase from amplitude than fix it)
+runs/outputs_unshift_down/output26, replacing phase with 0s
+
+helps with training loss a lot, but doesn't really help in metrics much
+probably model isn't good enough at fixing spectrogram
+let's try re-configuring it
+setup used to be:
+
+spec_channels = [4, 32, 64, 128, 256]
+spec_blocks = [1, 3, 4, 4]
+spec_factors = [4, 2, 2, 2]
+spec_scale_vs_channels = [2, 2, 2, 2]
+
+now:
+
+spec_channels = [8, 16, 32, 64, 512]
+spec_blocks = [1, 3, 3, 3]
+spec_factors = [2, 2, 2, 4]
+spec_scale_vs_channels = [2, 2, 2, 2]
+# params: 9.67M
+bottleneck_blocks = 3
+
+runs/outputs_unshift_down/output27
+let's see how this does
+
+not great
+
+perhaps a problem is that the STFT has limited frequency resolution
+48khz / 512 bins = each bin is ~93.7hz in size
+for high frequencies this is fine
+but f0 of speech is probably around ~200hz
+an error of even 1/2 bin = ~47hz is hugely off!
+changing stft parameters of stft part to fix this.
+Also, realized that hop size is wrong, to fix will add mel scale + inverse mel scale.
+
+One at a time, let's add mel scale / fix the stft numbers
+
+new params for stft:
+
+# spectrogram conversion
+self.to_spec = T.Spectrogram(1024, 1024, 256, power=None)
+self.to_wav = T.InverseSpectrogram(1024, 1024, 256)
+
+# mel conversion
+self.to_mel = T.MelScale(n_mels = 64, sample_rate=48_000, n_stft=513)
+self.to_hz = T.InverseMelScale(n_stft=513, n_mels=64, sample_rate=48_000)
+
+Smaller input height, so should use less memory, maybe faster too
+must reduce mel # to ensure no zeroes, otherwise get NaNs when inverting
+initially wanted 256 mel bins, but 64 was biggest amount that didn't nan
+
+STFT hop size is now 1/4 window (correct for hann window), so no aliasing
+mel scale should emphasize frequencies that are more important to perception
+
+runs/outputs_unshift_down/output28 
+
+next run, change STFT / mel params to increase # bins
+
+much bigger stft, now 2049 bins, bin size = ~23hz
+# spectrogram conversion
+self.to_spec = T.Spectrogram(4096, 4096, 1024, power=None)
+self.to_wav = T.InverseSpectrogram(4096, 4096, 1024)
+
+doubled the # of mels, but since mel scale is less precise at larger frequencies don't need to go all the way up
+# mel conversion
+self.to_mel = T.MelScale(n_mels = 512, sample_rate=48_000, n_stft=2049)
+self.to_hz = T.InverseMelScale(n_stft=2049, n_mels=512, sample_rate=48_000)
+
+
+actually never mind all that
+try out audio transformer
+just natten with 1d kernel of 127
+relative postion embeddings
+patching=64
+(if that's too much can try less or wider model)
+runs/outputs_unshift_down/output29
+
+maybe too big patching
+patch size 32:
+runs/outputs_unshift_down/output30
+
+still bad
+
+OK!
+NEW IDEA!
+the model needs to be able to copy any input bin to any output bin to shift the spectrogam amplitudes.
+(inspired by how the signalsmith method works)
+this part can be done independently of any bins to the left or right, and then can share info across bins separately
+in other words, put spectrogram into model like so:
+batch, channels, n_bins, n_frames -> batch*channels, n_bins, n_frames
+n_bins -> model_dim (> n_bins)
+so:
+conv to bring it up to model dim
+
+then the 1d conv blocks!
+
+then conv to bring it out
+
+and kernel=7 is enough for sharing across bins
+
+super fast since only a few layers
+and like 20M params since model is 768 wide (nbins = 513)
+runs/outputs_unshift_down/output31
+lower lr
+add spectrogram logging to see
+
+hmm, weird lines in output Spectrogram
+is it the 0 phase?
+let's try randn phase * 0.1 to scale it down a bit
+output32
+
+train l1 loss directly on spectrogram amplitudes model deals with?
+maybe will help with weird lines in spectrogram
+output33
+
+well no lines
+because its all noise
+pretty bad results
+
+mel spec loss + l1 loss on model spectrogram?
+better
+output34
+
+let's take it as far as we can
+2x batch size (64), increase model depth and width a little
+(4 blocks 768 wide to 6 blocks 1024 wide, but reduce expansion from 4x to 2x to prevent param count from exploding too much (~26M instead of ~51M)
+also reduce noise in phase by another 10x, it's too much (now multiplied by 1e-3)
+output35
+
+reduce batch size back to 32
+back to 0s for phase
+increase width and reduce expansion once again:
+width = 1536, expansion = 1
+# params: 29.99M
+slightly increases param count
+output36
+not really any better
+
+
+ah, the lines are the models attempt to add the missing noise!
+what if I give it a noise source?
+double the input channels in input conv, make randn_like amplitude spectrogram, concat along channels
+output37
+worse actually
+
+spec model 2:
+instead of the convnext style block
+use block style from hifi++
+
+act -> conv -> add residual
+
+width = 1024, 1536 didn't seem to help
+
+start with 4 blocks, then try 8, then try 16 (see how depth scaling helps)
+then try 4, 8, 16 blocks with width 1536 to see if width scaling helps
+
+use leaky relu since spectrogram
+(slope 0.1 like hifi++)
+
+output38
+
+still bad
+
+just realized: this is basically 1/2 shifting, 1/2 bandwidth extension
+since top half of frequencies is missing from input!
+
+anyways:
+8 blocks
+
+output39
+
+massive gradient norm spikes, total failure to train

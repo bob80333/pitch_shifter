@@ -1,6 +1,10 @@
 from muon import Muon
 import torch
 from pitch_shifter.model.model_1d_v2 import WavUNet
+from pitch_shifter.model.model_hybrid import HybridUnet
+from pitch_shifter.model.model_natten_transformer import AudioTransformer
+from pitch_shifter.model.model_1d_spec import Spec1dNet
+from pitch_shifter.model.model_1d_spec_2 import Spec1dNet2
 from pitch_shifter.data.data import PreShiftedDownAudioDataset
 from torch.utils.data import DataLoader
 from pathlib import Path
@@ -46,10 +50,16 @@ def main(args):
     g.manual_seed(0)
 
 
-    model = WavUNet()
+    model = Spec1dNet2()
     model.to(device)
 
-    opt_model = torch.compile(model)
+    # compile internal blocks but not spectrogram part
+    model.bottleneck_ampl = torch.compile(model.bottleneck_ampl)
+
+    #opt_model = torch.compile(model)
+    # only compile the internal models, not the spectrogram conversion operations, those break torch.compile
+    # model.wav_model = torch.compile(model.wav_model)
+    #model.spec_model = torch.compile(model.spec_model)
 
     # for newer version of Muon
     # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
@@ -58,7 +68,7 @@ def main(args):
     adamw_params = [p for p in model.parameters() if p.ndim < 2]
     # Create the optimizer
     optimizers = [
-        Muon(muon_params, lr=5e-3, momentum=0.95, weight_decay=0.01),
+        Muon(muon_params, lr=3e-3, momentum=0.95, weight_decay=0.01),
         torch.optim.AdamW(adamw_params, lr=5e-4, betas=(0.90, 0.95), weight_decay=0.01),
     ]
 
@@ -100,6 +110,9 @@ def main(args):
 
     writer = SummaryWriter(args.save_dir)
 
+    to_spectrogram = T.Spectrogram(1024, 1024, 256, power=2).to(device)
+    to_log = T.AmplitudeToDB().to(device)
+
     train_gen = inf_train_generator(train_dataloader)
 
     for step in trange(args.n_steps):
@@ -117,12 +130,15 @@ def main(args):
         shifted_audio = shifted_audio.unsqueeze(1)
 
         # predict fixed input audio
-        unshifted_audio = opt_model(shifted_audio)
+        unshifted_audio, unshifted_audio_spec = model(shifted_audio)
 
         # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
         #loss = stft_loss(unshifted_audio, audio)
 
-        l1_loss = l1_loss_fn(unshifted_audio, audio)
+        audio_spec = torch.view_as_real(model.to_spec(audio))[..., 0].squeeze()
+
+        #l1_loss = l1_loss_fn(unshifted_audio, audio)
+        l1_loss = l1_loss_fn(unshifted_audio_spec, audio_spec)
 
         #loss = cdpam_loss.forward(resampler(audio), resampler(unshifted_audio)).mean()
 
@@ -137,6 +153,7 @@ def main(args):
 
         loss = mel_loss + 10 * l1_loss
         #loss = l1_loss(unshifted_audio, audio)
+        #loss = l1_loss
         loss.backward()
         # log / clip grad norm
         writer.add_scalar("train/grad_norm", torch.nn.utils.clip_grad_norm_(model.parameters(), 1e3).item(), step+1)
@@ -167,7 +184,7 @@ def main(args):
                     shifted_audio = shifted_audio.unsqueeze(1)
                                         
                     # remove pitch artifacts from shifted audio
-                    unshifted_audio = opt_model(shifted_audio)
+                    unshifted_audio, _ = model(shifted_audio)
 
                     # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
                     val_loss = stft_loss(unshifted_audio, audio)
@@ -195,6 +212,21 @@ def main(args):
                 writer.add_audio("val/shifted_audio", shifted_audio[0], step+1, sample_rate=sr)
                 writer.add_audio("val/unshifted_audio", unshifted_audio[0], step+1, sample_rate=sr)
 
+                
+                audio_spec = to_log(to_spectrogram(audio[0]))
+                # normalize to between 0 and 1
+                audio_spec = (audio_spec - audio_spec.min()) / (audio_spec.max() - audio_spec.min())
+                shifted_audio_spec = to_log(to_spectrogram(shifted_audio[0]))
+                shifted_audio_spec = (shifted_audio_spec - shifted_audio_spec.min()) / (shifted_audio_spec.max() - shifted_audio_spec.min())
+                unshifted_audio_spec = to_log(to_spectrogram(unshifted_audio[0]))
+                unshifted_audio_spec = (unshifted_audio_spec - unshifted_audio_spec.min()) / (unshifted_audio_spec.max() - unshifted_audio_spec.min())
+
+
+                # save spectrograms
+                writer.add_image("val/audio_spec", audio_spec, step+1)
+                writer.add_image("val/unshifted_audio_spec", unshifted_audio_spec, step+1)
+                writer.add_image("val/shifted_audio_spec", shifted_audio_spec, step+1)
+
             print(f"Step {step+1}, val_loss: {total_val_loss}")
 
             torch.save(model.state_dict(), os.path.join(args.save_dir, f"model_{step+1}.pt"))
@@ -209,8 +241,8 @@ if __name__ == "__main__":
     argparser.add_argument("--n_steps", type=int, default=10_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
-    argparser.add_argument("--n_workers", type=int, default=6)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs_unshift_down/output21" )
+    argparser.add_argument("--n_workers", type=int, default=4)
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs_unshift_down/output39" )
 
     args = argparser.parse_args()
 

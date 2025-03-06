@@ -199,7 +199,7 @@ class Decoder(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self, channels=None, blocks=None):
+    def __init__(self, channels=None, blocks=None, factors=None, scale_vs_channels=None, bottleneck_blocks=4, input_channels=2):
         super().__init__()
 
         if channels is None:
@@ -209,6 +209,8 @@ class UNet(nn.Module):
             scale_vs_channels = [4, 2, 2, 2]
 
             bottleneck_blocks = 4
+        else:
+            assert len(channels)-1 == len(blocks) == len(factors) == len(scale_vs_channels)
 
         self.encoder = Encoder(channels, blocks, factors, scale_vs_channels)
         self.decoder = Decoder(
@@ -216,8 +218,8 @@ class UNet(nn.Module):
         )
         self.bottleneck = nn.Sequential(*[ConvNextBlock(channels[-1]) for _ in range(bottleneck_blocks)])
 
-        self.conv_in = nn.Conv2d(2, channels[0], kernel_size=3, padding=1)
-        self.conv_out = nn.Conv2d(channels[0], 2, kernel_size=3, padding=1)
+        self.conv_in = nn.Conv2d(input_channels, channels[0], kernel_size=3, padding=1)
+        self.conv_out = nn.Conv2d(channels[0], input_channels, kernel_size=3, padding=1)
 
     def forward(self, x):
         x = self.conv_in(x)
