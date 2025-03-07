@@ -4,10 +4,12 @@ import soundfile as sf
 import numpy as np
 from multiprocessing import Pool
 import python_stretch as ps
+import torch
+from torchaudio.functional import resample
 import os
 
 in_folder = "dataset_dir\\train"
-out_folder = "dataset_dir\\train_processed_unshift_down"
+out_folder = "dataset_dir\\train_processed_unshift_down_2"
 
 files = [str(x.absolute()) for x in Path(in_folder).rglob("*.flac")]
 
@@ -26,8 +28,15 @@ def process_file(file, in_folder=in_folder, out_folder=out_folder):
     audio, sr = sf.read(file)
     audio = audio.astype(np.float32) # convert to float32
 
-    # only deal with large shifts for now
-    shifts = [8, 10, 12]
+    # resample audio down to 24kHz and then back up to remove high frequencies
+    # use kaiser and more filter width to get better quality
+    audio = torch.from_numpy(audio).unsqueeze(0)
+    audio = resample(audio, sr, 24_000, lowpass_filter_width=200, resampling_method="sinc_interp_kaiser")
+    audio = resample(audio, 24_000, 48_000, lowpass_filter_width=200, resampling_method="sinc_interp_kaiser")
+    audio = audio.squeeze().numpy()
+
+    # only deal with large shift for now
+    shifts = [12]
     for shift in shifts:
         stretch.setTransposeSemitones(shift)
         shifted_audio = stretch.process(audio[None, :])[0]
