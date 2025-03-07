@@ -479,7 +479,7 @@ output34
 
 let's take it as far as we can
 2x batch size (64), increase model depth and width a little
-(4 blocks 768 wide to 6 blocks 1024 wide, but reduce expansion from 4x to 2x to prevent param count from exploding too much (~26M instead of ~51M)
+(4 blocks 768 wide to 6 blocks 1024 wide, but reduce expansion from 4x to 2x to prevent param count from exploding too much (~26M instead of ~51M))
 also reduce noise in phase by another 10x, it's too much (now multiplied by 1e-3)
 output35
 
@@ -526,3 +526,31 @@ anyways:
 output39
 
 massive gradient norm spikes, total failure to train
+
+new model, based off dac architecture, but uses Hifi++ setup for residual connections / upsampling
+1/2 the model width compared to DAC, and decoder same # of channels as encoder, unlike dac
+Also no weight norm.  
+1. because Muon may be able to not need it
+2. because the weird weight storage needed for muon to work breaks weightnorm :/
+
+output40
+
+unfortunately grad norm explodes
+
+add weight norm, switch to adamw
+output41
+not great results and still had to lower lr
+
+maybe just need to lower lr?
+remove wn, back to muon:
+better than adamw, and trained stably
+but still not amazing results
+
+conclusion: the bandwidth extension part doesn't work great
+and normal pitch shifting has that problem anyways
+so:
+v2 of the unshift dataset will resample audio to 24khz to reduce spectrum, before resampling to 48khz
+this way the shifted up audio will use full spectrum
+also will make resample function of pytorch use much more passes, default is 6 but people in torchaudio issues said 100-200 is better
+so 200, this is preprocessing
+
