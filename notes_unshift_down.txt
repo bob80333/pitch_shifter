@@ -554,3 +554,54 @@ this way the shifted up audio will use full spectrum
 also will make resample function of pytorch use much more passes, default is 6 but people in torchaudio issues said 100-200 is better
 so 200, this is preprocessing
 
+Switching to v2 dataset, re-running with output19 setup, which had some of the best results vs training time
+
+model_1d_v2,
+channels = [32, 64, 128, 256, 512]
+blocks = [3, 3, 3, 3]
+factors = [2, 2, 4, 8]
+scale_vs_channels = [1, 1, 2, 4]
+
+bottleneck_blocks = 3
+
+patching = 4
+
+runs/outputs_unshift_down/output43
+
+still bad results
+
+so it's not the dataset making the models do bandwidth extension, its not the models (all the models have had issues, some were better than others but overall all had problems)
+therefore it must be the losses
+I think there's a few options
+1) the mel spectrogram losses don't hit all the frequencies, so weird artifacts can show up
+2) the l1 loss isn't great for hitting the stuff that the mel losses miss, since it isn't just the phase that's having problems
+for the removing artifacts directly it worked well since the model didn't have to change the output much
+l1 mostly just helped phase issues
+and due to skip connections copying input over was easy for the model, but in this case we can't do that.
+
+so:
+firstly, I will try just a plain STFT loss with no mel bins
+then try adding that to all the mel losses with a appropriate scaling
+see how that goes
+
+if that doesn't work, then I can try adding in the GAN losses, they are a staple in audio models for a reason.
+
+runs/outputs_unshift_down/output44, only use the plain stft loss
+stft_loss_plain = STFTLoss(2048, 512, 2048)
+
+results are pretty similar, but worse
+listening to the output, sounds a bit worse and has an annoying high pitched artifact
+
+the outputs from output43 sound like the type of artifact that a GAN model would actually fix
+so, I will be trying out GAN training for this
+
+but before I do that, I will train the output 43 setup for longer to see if the artifacts will go away just with more training
+looking at all previous attempts, the longest training run was only 20k steps and all the way back at output2, one of the earliest training runs
+there has been progress in model architecture since then, and also the new dataset, which while not much different in metrics, sounds much worse.
+this is likely due to artifacting for higher frequencies where the model also has to do the bandwidth extension tasks, since they are missing from the input after it is shifted down.
+
+Let's train output43 setup, so not the plain stft loss, for 100k steps like the best artifact removal models were.
+
+output45
+
+definitely better, but not good enough, still has some of the artifacts in the speech that in my experience training melgan models, would go away with enough GAN training, but not without the discriminators

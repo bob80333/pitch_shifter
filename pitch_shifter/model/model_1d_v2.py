@@ -273,14 +273,14 @@ class WavUNet(nn.Module):
         super().__init__()
 
         if channels is None:
-            channels = [16, 32, 128, 256, 512]
+            channels = [32, 64, 128, 256, 512]
             blocks = [3, 3, 3, 3]
-            factors = [2, 4, 4, 8]
+            factors = [2, 2, 4, 8]
             scale_vs_channels = [1, 1, 2, 4]
 
             bottleneck_blocks = 3
 
-            patching = 2
+            patching = 4
 
         self.encoder = Encoder(channels, blocks, factors, scale_vs_channels)
         self.decoder = Decoder(

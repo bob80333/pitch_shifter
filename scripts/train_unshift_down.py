@@ -47,7 +47,7 @@ def main(args):
     g.manual_seed(0)
 
 
-    model = WavUNetDAC()
+    model = WavUNet()
     model.to(device)
 
     opt_model = torch.compile(model)
@@ -59,8 +59,8 @@ def main(args):
     adamw_params = [p for p in model.parameters() if p.ndim < 2]
     # Create the optimizer
     optimizers = [
-        Muon(muon_params, lr=1e-3, momentum=0.95, weight_decay=0.01),
-        torch.optim.AdamW(adamw_params, lr=1e-4, betas=(0.90, 0.95), weight_decay=0.01),
+        Muon(muon_params, lr=5e-3, momentum=0.95, weight_decay=0.01),
+        torch.optim.AdamW(adamw_params, lr=5e-4, betas=(0.90, 0.95), weight_decay=0.01),
     ]
 
     # no muon, in order to use weight norm
@@ -70,12 +70,12 @@ def main(args):
     # ]
 
 
-    train_files = list(Path("dataset_dir/train_processed_unshift_down").rglob("*.wav"))
+    train_files = list(Path("dataset_dir/train_processed_unshift_down_2").rglob("*.wav"))
     print(f"Found {len(train_files)} training files")
     train_dataset = PreShiftedDownAudioDataset(train_files, samples=16384*2)
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
 
-    val_files = list(Path("dataset_dir/val_processed_unshift_down").rglob("*.wav"))
+    val_files = list(Path("dataset_dir/val_processed_unshift_down_2").rglob("*.wav"))
     print(f"Found {len(val_files)} validation files")
     val_dataset = PreShiftedDownAudioDataset(val_files, test=True, samples=16384*8)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
@@ -232,11 +232,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=10_000)
+    argparser.add_argument("--n_steps", type=int, default=100_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=4)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs_unshift_down/output42" )
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs_unshift_down/output45" )
 
     args = argparser.parse_args()
 
