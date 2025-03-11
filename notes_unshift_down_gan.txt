@@ -1,0 +1,50 @@
+using the same model as output43 / 45 from train_unshift_down.txt, but using the GAN training setup
+I am using AdamW since muon requires model tweaks to work on convs, and I am using the discriminators from the DAC repo
+model may fail to train and need weight norm on the convs, or to add back the layer norms, we will see
+using torch.compile on both discriminators and generator, the GANLoss had the compiled model passed to it so hopefully that will have some speedups
+nope, that crashes, so only torch.compile the generator
+runs\outputs_unshift_down_gan\output1
+
+overall not great results, and very slow to train, probably due to the discriminators
+so, a few things for next time
+
+1) i can try to compile just the convs from the discriminators that aren't the complex stft disc (which is probably what broke it)
+combining the convs with their activations should give some speedup / memory reduction (was using almost 16GB when training! (~15.4GBs))
+ok, with various tweaks, getting ~13.8GB of vram use, so down ~1.6GB, not bad! (especially since at least like 8-11GB of that is the generator model)
+
+2) looking at DAC settings, for their single gpu ablations they trained with batch size 12 for 250k steps
+it took almost 2 hours to do 10k steps, but batch size 12 is ~1/3 batch size 32, so I'd be willing to train for maybe 100k steps with that batch size
+actually, thinking about it more, they pretrain with batch 12 seqlen 16384, so I am using 2x # samples per batch due to longer seqlen
+to even it out, i will reduce batch size to 8, which gives a little more samples / batch than them, but due to my models arch, the longer seqlen is needed to allow generalization
+
+
+3) looking at DAC, they reduce lr by a gamma every step
+gamma = 0.999996
+add that
+
+vcvars64 if compiling has weird error
+ & 'C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat'
+
+ not clear if the bat helps
+
+ ok tried in new terminal and ran into unexpected fp32 issue, when this was working previously
+ tried the bat
+ still not working :|
+
+ had to tweak what gets compiled to make it run
+
+runs\outputs_unshift_down_gan\output2
+has less artifacts? doesn't sound amazing, but artifacts are definitely different / reduced
+
+can't use muon because discriminator has convs that don't work with it?
+solution: make own version of discriminator that replaces convs with the flattened ones
+also remove weight norm, shouldn't be necessary with muon
+while its/sec will be slower, hopefully muon can train faster and get better results
+this is an issue with GANs, where they take a long time to train, maybe muon can train them faster
+(muon does better with large batches and batch size is relatively small here)
+
+much better results, particularly in si-sdr
+sounds better
+doesn't sound as good as original audio
+maybe further training could help, but likely need a better mdel as well
+
