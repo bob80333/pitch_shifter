@@ -88,3 +88,9 @@ less parameters
 10k steps adamw to test out new arch, 16k samples batch 16
 will try muon next to see if better generator stops discriminator from winning too much
 output10
+
+
+let's try out GAN setup like train_unshift_down_gan after it was able to really improve upon non-gan artifacting results
+output11
+
+ok, while it sounds OK, the non-gan setup sounds much better and doesn't have these artifacts of a pop at the beginning and the spectrogram artifacts like the line halfway through
