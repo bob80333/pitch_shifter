@@ -210,7 +210,7 @@ class Spec1dNet(nn.Module):
 
         self.bottleneck_ampl = nn.Sequential(*[ConvNextBlock(channels, expansion=1) for _ in range(blocks)])
 
-        self.conv_in_ampl = MyConv1d(513 * 2, channels, 1)
+        self.conv_in_ampl = MyConv1d(513, channels, 1)
         self.conv_out_ampl = MyConv1d(channels, 513, 1)
 
         self.to_spec = T.Spectrogram(1024, 1024, 256, power=None)
@@ -226,18 +226,9 @@ class Spec1dNet(nn.Module):
 
         x_phase = x[..., 1]
 
-        # add noise to amplitude
-        x_ampl_noise = torch.randn_like(x_ampl)
-
-        x_ampl = torch.concat([x_ampl, x_ampl_noise], dim=1)
-
         x_ampl = self.conv_in_ampl(x_ampl)
         x_ampl = self.bottleneck_ampl(x_ampl)
         x_ampl = self.conv_out_ampl(x_ampl)
-
-
-        # replace phase with 0s for now
-        x_phase = torch.zeros_like(x_phase)
 
         x = torch.stack([x_ampl, x_phase], dim=-1)
         x = torch.view_as_complex(x)
@@ -246,7 +237,7 @@ class Spec1dNet(nn.Module):
         # split channels and batch
         x = x.view(batch, channels, -1)
 
-        return x, x_ampl
+        return x
     
     def apply_weightnorm(self):
         # replace each conv1d and linear with weight normalized version
@@ -271,14 +262,14 @@ if __name__ == "__main__":
     # warmup
     with torch.no_grad():
         for _ in trange(50):
-            x = torch.randn(32, 1, 16384*2).to("cuda")
+            x = torch.randn(32, 1, 16384*3).to("cuda")
             y = opt_model(x)
 
     with torch.no_grad():
         start = time()
         for _ in trange(200):
-            x = torch.randn(32, 1, 16384*2).to("cuda")
-            y, _ = opt_model(x)
+            x = torch.randn(32, 1, 16384*3).to("cuda")
+            y = opt_model(x)
         end = time()
     print("Input shape", x.shape, "Output shape", y.shape)
     print("Took", end - start, "seconds")

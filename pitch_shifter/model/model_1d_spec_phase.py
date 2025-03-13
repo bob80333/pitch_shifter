@@ -203,106 +203,47 @@ class ConvNextBlock(nn.Module):
 
         return x + res
 
-class Encoder(nn.Module):
-    def __init__(self, channels, blocks, factors, scale_vs_channels):
+
+class SpecPhase1dNet(nn.Module):
+    def __init__(self, channels = 1536, blocks = 6):
         super().__init__()
 
-        kernels = [7, 23, 41]
+        self.bottleneck_ampl = nn.Sequential(*[ConvNextBlock(channels, expansion=1) for _ in range(blocks)])
+        self.bottleneck_phase = nn.Sequential(*[ConvNextBlock(channels, expansion=1) for _ in range(blocks)])
 
-        self.blocks = nn.ModuleList()
-        for i in range(len(channels) - 1):
-            for j in range(blocks[i]):
-                self.blocks.append(ConvNextBlock(channels[i], kernel=kernels[j]))
-            self.blocks.append(
-                DownsampleWithSkip(
-                    channels[i],
-                    channels[i + 1],
-                    average_channels=scale_vs_channels[i],
-                    factor=factors[i],
-                )
-            )
+        self.conv_in_ampl = MyConv1d(513, channels, 1)
+        self.conv_out_ampl = MyConv1d(channels, 513, 1)
+
+        self.conv_in_phase = MyConv1d(513, channels, 1)
+        self.conv_out_phase = MyConv1d(channels, 513, 1)
+
+        self.to_spec = T.Spectrogram(1024, 1024, 256, power=None)
+        self.to_wav = T.InverseSpectrogram(1024, 1024, 256)
 
     def forward(self, x):
-        residuals = [x]
-        for block in self.blocks:
-            x = block(x)
-            if isinstance(block, DownsampleWithSkip):
-                residuals.append(x)
+        batch, channels, _ = x.shape
+        # combine channels and batch
+        x = x.view(batch * channels, -1)
+        x = self.to_spec(x)
+        x = torch.view_as_real(x)
+        x_ampl = x[..., 0]
 
-        # remove last residual
-        residuals.pop()
+        x_phase = x[..., 1]
 
-        return x, residuals
+        x_ampl = self.conv_in_ampl(x_ampl)
+        x_ampl = self.bottleneck_ampl(x_ampl)
+        x_ampl = self.conv_out_ampl(x_ampl)
 
+        x_phase = self.conv_in_phase(x_phase)
+        x_phase = self.bottleneck_phase(x_phase)
+        x_phase = self.conv_out_phase(x_phase)
 
-class Decoder(nn.Module):
-    def __init__(self, channels, blocks, factors, scale_vs_channels):
-        super().__init__()
+        x = torch.stack([x_ampl, x_phase], dim=-1)
+        x = torch.view_as_complex(x)
+        x = self.to_wav(x)
 
-        kernels = [7, 23, 41]
-
-        self.blocks = nn.ModuleList()
-        for i in range(1, len(channels)):
-            self.blocks.append(
-                UpsampleWithSkip(
-                    channels[i - 1],
-                    channels[i],
-                    dup_channels=scale_vs_channels[i - 1],
-                    factor=factors[i - 1],
-                )
-            )
-            for j in range(blocks[i - 1]):
-                self.blocks.append(ConvNextBlock(channels[i], kernel=kernels[j]))
-
-            self.blocks.append(MyConv1d(channels[i] * 2, channels[i], 1))
-
-
-    def forward(self, x, residuals):
-        for block in self.blocks:
-            # skip conv
-            if isinstance(block, MyConv1d):
-                x = torch.cat([x, residuals.pop()], dim=1)
-                
-            x = block(x)
-
-        return x
-
-
-class WavUNet(nn.Module):
-    def __init__(self, channels=None, blocks=None, factors=None, scale_vs_channels=None, bottleneck_blocks=None, patching=None):
-        super().__init__()
-
-        if channels is None:
-            channels = [32, 64, 128, 256, 512]
-            blocks = [3, 3, 3, 3]
-            factors = [2, 2, 4, 8]
-            scale_vs_channels = [1, 1, 2, 4]
-
-            bottleneck_blocks = 3
-
-            patching = 4
-
-        self.encoder = Encoder(channels, blocks, factors, scale_vs_channels)
-        self.decoder = Decoder(
-            channels[::-1], blocks[::-1], factors[::-1], scale_vs_channels[::-1]
-        )
-
-        self.bottleneck = nn.Sequential(*[ConvNextBlock(channels[-1]) for _ in range(bottleneck_blocks)])
-
-        self.in_patch = PixelUnshuffle1D(patching)
-        self.out_patch = PixelShuffle1D(patching)
-
-        self.conv_in = MyConv1d(patching, channels[0], 5, padding=2)
-        self.conv_out = MyConv1d(channels[0], patching, 5, padding=2)
-
-    def forward(self, x):
-        x = self.in_patch(x)
-        x = self.conv_in(x)
-        x, residuals = self.encoder(x)
-        x = self.bottleneck(x)
-        x = self.decoder(x, residuals)
-        x = self.conv_out(x)
-        x = self.out_patch(x)
+        # split channels and batch
+        x = x.view(batch, channels, -1)
 
         return x
     
@@ -314,7 +255,7 @@ class WavUNet(nn.Module):
 
 
 if __name__ == "__main__":
-    model = WavUNet().to("cuda")
+    model = SpecPhase1dNet().to("cuda")
     print(model)
     opt_model = torch.compile(model)
     # tf32

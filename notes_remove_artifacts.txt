@@ -655,3 +655,79 @@ weight decay maybe hurts results a bit early on, should help with longer trainin
 
 let's try 100k steps
 output91
+
+
+
+
+can we make a faster good model? faster training -> can do longer training runs with larger batch sizes
+(batch 32, 3*16384 samples, 200 forward passes timed (randomized input each forward))
+current model_1d_v2 setup:  Input shape torch.Size([32, 1, 49152]) Output shape torch.Size([32, 1, 49152]) Took 11.4979989528656 seconds
+
+model_1d_dac Input shape torch.Size([32, 1, 49152]) Output shape torch.Size([32, 1, 49152]) Took 16.86350131034851 seconds
+
+model_1d_spec Input shape torch.Size([32, 1, 49152]) Output shape torch.Size([32, 1, 49152]) Took 3.2860000133514404 seconds
+this model is super fast but doesn't touch phase
+
+model_1d_spec_phase Input shape torch.Size([32, 1, 49152]) Output shape torch.Size([32, 1, 49152]) Took 6.290999412536621 seconds
+Does same thing to phase as spec with different set of params
+unsurprisingly, takes twice as long, but since original is super fast, still pretty quick
+
+
+head to head model comparisons
+at end of training, do si-sdr on whole dataset, and production quality metric from audiobox aesthetics.
+training for 20k steps at batch 32 with size of 3*16384 during training (~1 second 48khz), and 12*16384 during testing (~4.1 seconds 48khz)
+
+also, the validation mel loss now matches training loss, already have si-sdr for alternative metric anyways
+additionally added spectrogram visualization like in other setup, helps see if any obvious artifacts from model, and see difference in model artifacts between architectures
+
+output92 is the model_1d_v2 model
+output93 is the model_1d_dac model
+first training of model_1d_dac exploded after ~2.2k steps
+lowering lr from 5e-3 muon 5e-4 adamw to 1e-3 muon 1e-4 adamw (original DAC model uses 1e-4 as LR)
+output94 is the model_1d_dac model, with lower lr (hopefully no loss / grad norm explosion)
+output95 is the model_1d_spec model
+output96 is the model_1d_spec_phase model
+
+we will compare models by looking at the PQ and si-sdr values
+
+What, mean, std, median, min, max
+
+model_1d_v2:
+
+Original PQ, 7.397897063351389, 0.2775520125421763, 7.426762819290161, 5.682155132293701, 8.256006240844727
+Shifted PQ, 6.3414564816587005, 0.6139258788253759, 6.361539125442505, 4.28273868560791, 8.050226211547852
+Unshifted PQ, 7.100630060727917, 0.3200090286296923, 7.1264989376068115, 5.572937965393066, 8.147261619567871
+Shifted SI-SDR, -18.974841641741737, 10.088221835618912, -16.85178565979004, -79.63749694824219, 2.459331512451172
+Unshifted SI-SDR, -11.26012295092323, 9.334433749448385, -9.199989795684814, -73.98777770996094, 5.0
+
+model_1d_dac
+
+Original PQ, 7.397888841802504, 0.27755410045302487, 7.426485061645508, 5.6817240715026855, 8.255695343017578
+Shifted PQ, 6.341449345559327, 0.6139276536274133, 6.361863374710083, 4.283082962036133, 8.050267219543457
+Unshifted PQ, 7.156263238569694, 0.3083742135394702, 7.18623685836792, 5.835231304168701, 8.145949363708496
+Shifted SI-SDR, -18.974841641741737, 10.088221835618912, -16.85178565979004, -79.63749694824219, 2.459331512451172
+Unshifted SI-SDR, -10.289102757941732, 9.227971339065173, -8.289327144622803, -67.4070053100586, 5.25086784362793
+
+skipping the spec models since they are pretty bad, barely if at all improve over shifted in PQ and si-sdr
+
+used a t-test website between model_1d_v2 and model_1d_dac
+just using summary stats, not original values get this:
+
+P value and statistical significance:
+The two-tailed P value is less than 0.0001
+By conventional criteria, this difference is considered to be extremely statistically significant.
+Confidence interval:
+The mean of 1D_V2 minus 1D_DAC equals -0.055633177841777000
+95% confidence interval of this difference: From -0.068967065916809540 to -0.042299289766744460
+Intermediate values used in calculations:
+t = 8.1974
+df = 8574
+standard error of difference = 0.007 
+
+so model_1d_dac is better in PQ
+could have used paired t-test since we are working on same audio samples between both models
+
+model_1d_v2 also has an issue in spectrogram, where there is a line across middle pretty strongly, probably related to the patching or upsampling / downsampling layers aliasing
+
+Anyways, so now the problem is that the DAC-based model is kinda slow
+
