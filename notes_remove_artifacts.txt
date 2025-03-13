@@ -725,9 +725,54 @@ df = 8574
 standard error of difference = 0.007 
 
 so model_1d_dac is better in PQ
-could have used paired t-test since we are working on same audio samples between both models
+could have used paired t-test since we are working on same audio samples between both models, and all the values are saved
 
 model_1d_v2 also has an issue in spectrogram, where there is a line across middle pretty strongly, probably related to the patching or upsampling / downsampling layers aliasing
 
 Anyways, so now the problem is that the DAC-based model is kinda slow
 
+DAC uses a different upsampling / downsampling than other model does, maybe can use that to reduce length initially?
+
+Original DAC speed / memory usage:
+19177MiB
+~2.6it/s
+
+DAC with 1 2x downsampling / upsampling inserted at beginning (stride = 2, initial_channels = 16, no change in model strides)
+11320MiB
+~4.0 it/s
+
+let's train this DAC model and see how good it is, the speedup / memory reduction is quite nice, hopefully doesn't hurt performance too much
+output97
+
+also to note, DAC codebase configs use audio segments of 0.38seconds ~= 16384 samples, this setup is currently training on 3x that
+could potentially reduce and get some speedup / memory reduction, could maybe increase batch size as well?
+not clear if batchsize*#samples is what matters, or if more batchsize less samples is better, or if less batchsize more samples is better
+EVA-GAN seems to think #samples more important, we can try those changes out later
+
+DAC with the downsampling and nothing else
+Original PQ, 7.397897063351389, 0.2775520125421763, 7.426762819290161, 5.682155132293701, 8.256006240844727
+Shifted PQ, 6.3414564816587005, 0.6139258788253759, 6.361539125442505, 4.28273868560791, 8.050226211547852
+Unshifted PQ, 7.130573544929277, 0.315028272943776, 7.159674406051636, 5.63200569152832, 8.066680908203125
+Shifted SI-SDR, -18.974841641741737, 10.088221835618912, -16.85178565979004, -79.63749694824219, 2.459331512451172
+Unshifted SI-SDR, -10.780254906943586, 9.169527232640597, -8.700427055358887, -79.99737548828125, 7.1225175857543945
+
+
+P value and statistical significance:
+The two-tailed P value equals 0.0001
+By conventional criteria, this difference is considered to be extremely statistically significant.
+Confidence interval:
+The mean of DAC original minus DAC downsample equals 0.025689693640417000
+95% confidence interval of this difference: From 0.012463007487406676 to 0.038916379793427325
+Intermediate values used in calculations:
+t = 3.8160
+df = 8574
+standard error of difference = 0.007 
+
+about half the distance between the DAC model and the 1d_v2 model
+so with the downsampling the DAC model is a little faster to train than the 1d_v2 model and still gets better results
+
+Now, let's compare it when I reduce training seqlen, keeping batch size the same and not
+so 2 more runs:
+
+DAC 2x downsample, seqlen 1/3 = 16384, batch = 32
+DAC 2x downsample, seqlen 1/3 = 16384, batch = 96

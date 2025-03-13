@@ -50,13 +50,13 @@ def main(args):
     g = torch.Generator()
     g.manual_seed(0)
 
-    model = SpecPhase1dNet()
+    model = WavUNetDAC()
     model.to(device)
 
-    #opt_model = torch.compile(model)
+    opt_model = torch.compile(model)
 
-    model.bottleneck_ampl = torch.compile(model.bottleneck_ampl)
-    model.bottleneck_phase = torch.compile(model.bottleneck_phase)
+    #model.bottleneck_ampl = torch.compile(model.bottleneck_ampl)
+    #model.bottleneck_phase = torch.compile(model.bottleneck_phase)
 
     # # Find ≥2D parameters in the body of the network -- these should be optimized by Muon
     # muon_params = [p for p in model.parameters() if p.ndim >= 2]
@@ -73,8 +73,8 @@ def main(args):
     adamw_params = [p for p in model.parameters() if p.ndim < 2]
     # Create the optimizer
     optimizers = [
-        Muon(muon_params, lr=5e-3, momentum=0.95, weight_decay=0.01),
-        torch.optim.AdamW(adamw_params, lr=5e-4, betas=(0.90, 0.95), weight_decay=0.01),
+        Muon(muon_params, lr=1e-3, momentum=0.95, weight_decay=0.01),
+        torch.optim.AdamW(adamw_params, lr=1e-4, betas=(0.90, 0.95), weight_decay=0.01),
     ]
 
     # optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
@@ -159,7 +159,7 @@ def main(args):
         shifted_audio = shifted_audio.unsqueeze(1)
 
         # predict differences to fix the input audio
-        unshifted_audio = model(shifted_audio)
+        unshifted_audio = opt_model(shifted_audio)
 
         # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
         # loss = stft_loss(unshifted_audio, audio)
@@ -213,7 +213,7 @@ def main(args):
                     shifted_audio = shifted_audio.unsqueeze(1)
 
                     # remove pitch artifacts from shifted audio
-                    unshifted_audio = model(shifted_audio)
+                    unshifted_audio = opt_model(shifted_audio)
 
 
                     # calculate sisdr loss
@@ -298,7 +298,7 @@ def main(args):
             audio = audio.unsqueeze(1)
             shifted_audio = shifted_audio.unsqueeze(1)
 
-            unshifted_audio = model(shifted_audio)
+            unshifted_audio = opt_model(shifted_audio)
 
             # negate because loss is inverted
             shifted_si_sdr = -sisdr_loss(shifted_audio, audio)
@@ -352,7 +352,7 @@ if __name__ == "__main__":
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=4)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output96")
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output97")
 
     args = argparser.parse_args()
 
