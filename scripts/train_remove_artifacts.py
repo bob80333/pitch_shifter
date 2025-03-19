@@ -276,7 +276,7 @@ def main(args):
 
     # done training, final evaluation using audiobox + sisdr
     from audiobox_aesthetics.infer import AesPredictor
-    predictor = AesPredictor(checkpoint_pth=None, batch_size=32)
+    predictor = AesPredictor(checkpoint_pth=None, batch_size=args.batch_size)
 
     # sisdr loss no averaging
     sisdr_loss = SISDRLoss(reduction="none")
@@ -350,9 +350,9 @@ if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
     argparser.add_argument("--n_steps", type=int, default=20_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
-    argparser.add_argument("--batch_size", type=int, default=32)
+    argparser.add_argument("--batch_size", type=int, default=16)
     argparser.add_argument("--n_workers", type=int, default=4)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output97")
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output100")
 
     args = argparser.parse_args()
 

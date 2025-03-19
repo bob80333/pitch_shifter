@@ -774,5 +774,16 @@ so with the downsampling the DAC model is a little faster to train than the 1d_v
 Now, let's compare it when I reduce training seqlen, keeping batch size the same and not
 so 2 more runs:
 
-DAC 2x downsample, seqlen 1/3 = 16384, batch = 32
-DAC 2x downsample, seqlen 1/3 = 16384, batch = 96
+DAC 2x downsample, seqlen 1/3 = 16384, batch = 32 - output98
+uses 4654MiB memory
+~7.5it/s
+note: GPU utilization seems to be hovering ~50-60%, so this is underutilizing GPU, which is why its not even 2x faster training
+on the other hand, this potentially could allow to increase model size without slowdown, if it turns out this is a good training setup?
+Also, maybe need to do some profiling to see what's the bottleneck in allowing full GPU utilization?
+DAC 2x downsample, seqlen 1/3 = 16384, batch = 96 (3x) - output99
+
+overall results: original setup is much better quality than other 2
+
+what if: reduce batch size by 1/2? batch size seems to affect quality less than # samples
+
+output100
