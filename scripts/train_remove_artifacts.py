@@ -352,7 +352,7 @@ if __name__ == "__main__":
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=4)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output103")
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output104")
 
     args = argparser.parse_args()
 

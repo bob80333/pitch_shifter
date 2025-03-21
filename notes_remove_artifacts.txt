@@ -818,6 +818,7 @@ doubling channels slower than doubling batch
 2x batch was ~2.4 it/s
 2x channels is ~2.0 it/s
 so instead of taking ~2hrs 25 minutes from first step to last, took ~3 hrs 5 minutes (2x batch size vs no downsample had similar time to train)
+used ~22GB memory
 
 What, mean, std, median, min, max
 Original PQ, 7.397897063351389, 0.2775520125421763, 7.426762819290161, 5.682155132293701, 8.256006240844727
@@ -831,3 +832,35 @@ basially the same PQ, slightly better si-sdr
 what if use the doubled channels model, but do a 4x downsample?
 higher param count, but the extra downsampling should offset the params somewhat
 output103
+~13GB
+~3.2 it/s
+
+What, mean, std, median, min, max
+Original PQ, 7.397897063351389, 0.2775520125421763, 7.426762819290161, 5.682155132293701, 8.256006240844727
+Shifted PQ, 6.3414564816587005, 0.6139258788253759, 6.361539125442505, 4.28273868560791, 8.050226211547852
+Unshifted PQ, 7.10712933696028, 0.32146332933431987, 7.141205549240112, 5.501664161682129, 8.103938102722168
+Shifted SI-SDR, -18.974841641741737, 10.088221835618912, -16.85178565979004, -79.63749694824219, 2.459331512451172
+Unshifted SI-SDR, -10.571595639094003, 9.338811168241824, -8.568894863128662, -72.30490112304688, 7.473552227020264
+
+What if the dac model blocks were deeper? instead of 3 deep, 4 deep?
+in order to do this, need to change the dilation setup, otherwise the dilations get ridiculous
+e.g.  a dilation of 27 with kernel size 7 goes across 169 samples, if at the lowest level which is 1024x down it would be 173056 samples across, or 3.6 seconds at 48khz, more than needed for the task
+instead:
+original dac dilations:
+[1, 3, 9]
+alternative being tried:
+[1, 2, 4, 8] # power of 2, like wavenet
+allows increasing depth by 1 without massively changing receptive field
+output104: 2x downsample, same width, deeper / alt dilations
+~14GB
+~3.3it/s
+
+What, mean, std, median, min, max
+Original PQ, 7.397897063351389, 0.2775520125421763, 7.426762819290161, 5.682155132293701, 8.256006240844727
+Shifted PQ, 6.3414564816587005, 0.6139258788253759, 6.361539125442505, 4.28273868560791, 8.050226211547852
+Unshifted PQ, 7.117081089695888, 0.31094515995870514, 7.148790597915649, 5.675454139709473, 8.015702247619629
+Shifted SI-SDR, -18.974841641741737, 10.088221835618912, -16.85178565979004, -79.63749694824219, 2.459331512451172
+Unshifted SI-SDR, -11.002143055637406, 9.378870968464312, -9.0050630569458, -77.61739349365234, 5.776949882507324
+
+Vs the 4x downsample, Worse si-sdr, very similar PQ, spectrogram looks worse (although the 4x has artifact in the middle bin due to the downsample)
+~1GB more memory (~7% more memory) for slightly faster (~3% faster), probably not worth since may not be able to fit 2x batch size with the memory increase

@@ -187,11 +187,11 @@ class WavUNetDAC(nn.Module):
         super().__init__()
 
         if channels is None:
-            initial_channels = 32
-            initial_stride = 4
-            channels = [64, 128, 256, 512, 1024]
+            initial_channels = 16
+            initial_stride = 2
+            channels = [32, 64, 128, 256, 512]
             strides = [2, 4, 8, 8]
-            dilations = [1, 3, 9]
+            dilations = [1, 2, 4, 8]
 
         self.encoder = Encoder(channels, strides, dilations)
         self.decoder = Decoder(channels[::-1], strides[::-1], dilations)
