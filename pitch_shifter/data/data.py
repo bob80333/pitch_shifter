@@ -190,18 +190,107 @@ class PreShiftedDownAudioDataset(Dataset):
 
         return audio, shifted_audio
     
+
+class BetterAudioDataset(Dataset):
+    def __init__(self, paths, samples=16384*3, test=False):
+        self.paths = paths
+        self.samples = samples
+        self.test = test
+        self.stretch = None # mono audio, 48 kHz
+
+        self.resample_up = T.Resample(orig_freq=48_000, new_freq=96_000, resampling_method="sinc_interp_kaiser")
+        self.resample_down = T.Resample(orig_freq=96_000, new_freq=48_000, resampling_method="sinc_interp_kaiser")
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, idx):
+        path = self.paths[idx]
+        audio, sr = soundfile.read(path)
+
+        audio = audio.astype(np.float32) # convert to float32
+
+        # can't pickle Stretch object, so create it on first use
+        if self.stretch is None:
+            self.stretch = ps.Signalsmith.Stretch()
+            self.stretch.preset(1, 96_000)
+
+        # pad audio if necessary
+        if len(audio) < self.samples:
+            audio = np.pad(audio, (0, self.samples - len(audio) + 1))
+
+        if self.test:
+            # return middle group of samples
+            start = len(audio) // 2 - self.samples // 2
+            audio = audio[start : start + self.samples]
+        else:
+            # return random group of samples
+            start = np.random.randint(0, len(audio) - self.samples)
+            audio = audio[start : start + self.samples]
+
+        # do pitch shift augmentation
+        # random pitch shift between -12 and 12 semitones (-1 octave to +1 octave)
+        if self.test:
+            shift = 12 # always shift up 1 octave for testing
+        else:
+            shift = np.random.randint(-12, 13)
+
+        # resample to higher sample rate to keep high frequencies after downshift
+        audio_resamp = self.resample_up(torch.from_numpy(audio)).numpy()
+        # shift audio up and back down to keep same pitch but introduce pitch shifting artifacts
+        #shifted_audio = audio.copy()
+        self.stretch.setTransposeSemitones(shift)
+        shifted_audio = self.stretch.process(audio_resamp[None, :])
+        self.stretch.setTransposeSemitones(-shift)
+        shifted_audio = self.stretch.process(shifted_audio)[0]
+
+        # downsample back to 48 kHz
+        shifted_audio = np.array(shifted_audio)
+        shifted_audio = torch.from_numpy(shifted_audio)
+        shifted_audio = self.resample_down(shifted_audio)
+
+        audio = torch.from_numpy(audio)
+        audio = audio.float()
+        shifted_audio = shifted_audio.float()
+
+        return audio, shifted_audio
+    
 if __name__ == "__main__":
     from pathlib import Path
     from torch.utils.data import DataLoader
-    train_files = list(Path("data/val_processed").rglob("*.wav"))
-    print(f"Found {len(train_files)} training files")
-    train_dataset = PreShiftedAudioDataset(train_files, test=True)
-    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True, drop_last=True, num_workers=2)
+    train_files = list(Path("dataset_dir/val_processed_v2").rglob("*_baseline.wav"))[:8*101] # limit # of samples to make testing faster
+    print(f"Found {len(train_files)} val files")
+    train_dataset = AudioDataset(train_files, test=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=8, shuffle=True, drop_last=True, num_workers=0)
     from tqdm import tqdm
+    from time import time
+
+    # speed test
 
     i = 0
     for audio, shifted_audio in tqdm(train_dataloader):
-        #print(audio.shape, shifted_audio.shape)
         i += 1
+        if i == 1: # let the dataloader init processes before timing
+            start = time()
 
-    print(i)
+
+    print("Original Audio Dataset:")
+    end = time()
+    print(f"Time: {end - start:.2f}")
+    print(f"Batches/second: {100 / (end - start):.2f}")
+    print(f"Time: {time() - start:.2f}")
+
+    train_dataset = BetterAudioDataset(train_files, test=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=8, shuffle=True, drop_last=True, num_workers=0)
+
+    i = 0
+    for audio, shifted_audio in tqdm(train_dataloader):
+        i += 1
+        if i == 1: # let the dataloader init processes before timing
+            start = time()
+
+
+    print("Better Audio Dataset (keeps high frequencies):")
+    end = time()
+    print(f"Time: {end - start:.2f}")
+    print(f"Batches/second: {100 / (end - start):.2f}")
