@@ -864,3 +864,38 @@ Unshifted SI-SDR, -11.002143055637406, 9.378870968464312, -9.0050630569458, -77.
 
 Vs the 4x downsample, Worse si-sdr, very similar PQ, spectrogram looks worse (although the 4x has artifact in the middle bin due to the downsample)
 ~1GB more memory (~7% more memory) for slightly faster (~3% faster), probably not worth since may not be able to fit 2x batch size with the memory increase
+
+New idea: since # samples per item more important to quality than batch size, reduce batch size and increase # samples per batch?
+batch = 16 (1/2), # samples = 16384 * 4 (33% more)
+back to DAC with 1 downsample baseline
+output105
+~9.5GB memory, ~5.1it/s
+
+What, mean, std, median, min, max
+Original PQ, 7.397897063351389, 0.2775520125421763, 7.426762819290161, 5.682155132293701, 8.256006240844727
+Shifted PQ, 6.3414564816587005, 0.6139258788253759, 6.361539125442505, 4.28273868560791, 8.050226211547852
+Unshifted PQ, 7.109018741258934, 0.31372212457822723, 7.13405966758728, 5.487709999084473, 8.053832054138184
+Shifted SI-SDR, -18.974841641741737, 10.088221835618912, -16.85178565979004, -79.63749694824219, 2.459331512451172
+Unshifted SI-SDR, -11.784670782595205, 9.808654266499042, -9.644914150238037, -76.40694427490234, 6.1292877197265625
+
+pretty bad, probably reduced total # samples too much
+
+batch = 16 (1/2), # samples = 16384 * 6 (2x)
+
+this is same # of total samples, can see if more samples helps, or if too low batch size hurts (muon is supposed to be helped by bigger batch size)
+output106
+~12.8GB
+~3.95it/s
+
+What, mean, std, median, min, max
+Original PQ, 7.397896721736709, 0.2775515563940755, 7.4266557693481445, 5.682501316070557, 8.255830764770508
+Shifted PQ, 6.341460106088154, 0.6139255917877597, 6.36174201965332, 4.282208442687988, 8.050172805786133
+Unshifted PQ, 7.120326527575059, 0.3207937387079875, 7.153940439224243, 5.695596694946289, 8.035765647888184
+Shifted SI-SDR, -18.974841641741737, 10.088221835618912, -16.85178565979004, -79.63749694824219, 2.459331512451172
+Unshifted SI-SDR, -11.287993096484026, 9.4252814722245, -9.230056762695312, -76.8836669921875, 5.387906074523926
+worse than baseline both in si-sdr and PQ
+
+Best results was 2x width DAC with the initial 2x downsample, next best was 2x batch size DAC with initial 2x downsample
+Let's try the 2x width DAC with 2x downsample for a full 100k steps to see how much improvement we can expect by training for longer
+(output102 is same setup but 20k steps)
+output107, 100k steps

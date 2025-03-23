@@ -1,15 +1,11 @@
 from muon import Muon
 import torch
-from pitch_shifter.model.model_1d_v2 import WavUNet
 from pitch_shifter.model.model_1d_dac import WavUNetDAC
-from pitch_shifter.model.model_1d_spec import Spec1dNet
-from pitch_shifter.model.model_1d_spec_phase import SpecPhase1dNet
 from pitch_shifter.data.data import PreShiftedAudioDataset
 from torch.utils.data import DataLoader
 from pathlib import Path
 import argparse
 from tqdm import trange
-from auraloss.freq import MultiResolutionSTFTLoss
 from auraloss.time import SISDRLoss
 from torch.utils.tensorboard import SummaryWriter
 import os
@@ -98,7 +94,7 @@ def main(args):
     val_dataset = PreShiftedAudioDataset(val_files, test=True, samples=16384 * 12)
     val_dataloader = DataLoader(
         val_dataset,
-        batch_size=args.batch_size,
+        batch_size=32,
         shuffle=False,
         drop_last=True,
         num_workers=args.n_workers,
@@ -348,11 +344,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=20_000)
+    argparser.add_argument("--n_steps", type=int, default=100_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=4)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output104")
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output107")
 
     args = argparser.parse_args()
 
