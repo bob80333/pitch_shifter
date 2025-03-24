@@ -899,3 +899,20 @@ Best results was 2x width DAC with the initial 2x downsample, next best was 2x b
 Let's try the 2x width DAC with 2x downsample for a full 100k steps to see how much improvement we can expect by training for longer
 (output102 is same setup but 20k steps)
 output107, 100k steps
+
+What, mean, std, median, min, max
+Original PQ, 7.397896721736709, 0.2775515563940755, 7.4266557693481445, 5.682501316070557, 8.255830764770508
+Shifted PQ, 6.341460106088154, 0.6139255917877597, 6.36174201965332, 4.282208442687988, 8.050172805786133
+Unshifted PQ, 7.269454287059271, 0.3142545631334111, 7.3019280433654785, 3.727414131164551, 8.227209091186523
+Shifted SI-SDR, -18.974841641741737, 10.088221835618912, -16.85178565979004, -79.63749694824219, 2.459331512451172
+Unshifted SI-SDR, -8.97001226255566, 9.357444793539331, -6.956748008728027, -77.5777587890625, 9.223884582519531
+
+Best result yet, by increasing # train steps to 100k, brought mean PQ from ~7.18 to ~7.27, only ~0.14 away from the original audio mean PQ now
+listening to it, the 20k steps run (output102) I can hear the difference between original and fixed, the 100k steps run (output107) I cannot hear a difference
+(at least for the clip logged in tensorboard)
+
+Before trying out more training steps, let's try out lr decay, since training slowed down greatly by end of run
+linear decay to 0
+
+20k steps for comparison purposes
+output108, 20k steps, linear decay to 0
