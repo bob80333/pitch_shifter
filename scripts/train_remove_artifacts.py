@@ -72,6 +72,11 @@ def main(args):
         Muon(muon_params, lr=1e-3, momentum=0.95, weight_decay=0.01),
         torch.optim.AdamW(adamw_params, lr=1e-4, betas=(0.90, 0.95), weight_decay=0.01),
     ]
+    # decay lr linearly to 0 across training steps for each optimizer
+    schedulers = [
+        torch.optim.lr_scheduler.LambdaLR(optimizers[0], lambda step: 1 - step / args.n_steps),
+        torch.optim.lr_scheduler.LambdaLR(optimizers[1], lambda step: 1 - step / args.n_steps),
+    ]
 
     # optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
 
@@ -144,7 +149,6 @@ def main(args):
         model.train()
         for opt in optimizers:
             opt.zero_grad()
-        # optimizer.zero_grad()
 
         audio, shifted_audio = next(train_gen)
         audio = audio.to(device)
@@ -154,18 +158,10 @@ def main(args):
         audio = audio.unsqueeze(1)
         shifted_audio = shifted_audio.unsqueeze(1)
 
-        # predict differences to fix the input audio
+        # predict clean audio from shifted audio
         unshifted_audio = opt_model(shifted_audio)
 
-        # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
-        # loss = stft_loss(unshifted_audio, audio)
-
         l1_loss = l1_loss_fn(unshifted_audio, audio)
-
-        # loss = cdpam_loss.forward(resampler(audio), resampler(unshifted_audio)).mean()
-
-        # loss = dac_loss(unshifted_audio, audio)
-        # feature_loss = wavlm_loss(unshifted_audio, audio)
 
         # make tensors AudioSignals for MelSpectrogramLoss (takes in tensors, so should preserve gradients)
         audio = AudioSignal(audio, sr)
@@ -174,7 +170,6 @@ def main(args):
         mel_loss = melspec_loss(unshifted_audio, audio)
 
         loss = mel_loss + 10 * l1_loss
-        # loss = l1_loss(unshifted_audio, audio)
         loss.backward()
         # log / clip grad norm
         writer.add_scalar(
@@ -185,12 +180,13 @@ def main(args):
 
         for opt in optimizers:
             opt.step()
-        # optimizer.step()
+        
+        for scheduler in schedulers:
+            scheduler.step()
 
         writer.add_scalar("train/loss", loss, step + 1)
         writer.add_scalar("train/mel_loss", mel_loss, step + 1)
         writer.add_scalar("train/l1_loss", l1_loss, step + 1)
-        # writer.add_scalar("train/wavlm_loss", feature_loss, step+1)
 
         if (step + 1) % args.eval_every == 0:
             model.eval()
@@ -344,11 +340,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=100_000)
+    argparser.add_argument("--n_steps", type=int, default=20_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=4)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output107")
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output108")
 
     args = argparser.parse_args()
 
