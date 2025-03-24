@@ -51,17 +51,6 @@ def main(args):
 
     opt_model = torch.compile(model)
 
-    #model.bottleneck_ampl = torch.compile(model.bottleneck_ampl)
-    #model.bottleneck_phase = torch.compile(model.bottleneck_phase)
-
-    # # Find ≥2D parameters in the body of the network -- these should be optimized by Muon
-    # muon_params = [p for p in model.parameters() if p.ndim >= 2]
-    # # Find everything else -- these should be optimized by AdamW
-    # adamw_params = [p for p in model.parameters() if p.ndim < 2]
-    # # Create the optimizer
-    # optimizer = Muon(muon_params, lr=5e-3, momentum=0.95,
-    #                 adamw_params=adamw_params, adamw_lr=5e-4, adamw_betas=(0.90, 0.95), adamw_wd=0.01)
-
     # for newer version of Muon
     # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
     muon_params = [p for p in model.parameters() if p.ndim >= 2]
@@ -69,16 +58,14 @@ def main(args):
     adamw_params = [p for p in model.parameters() if p.ndim < 2]
     # Create the optimizer
     optimizers = [
-        Muon(muon_params, lr=1e-3, momentum=0.95, weight_decay=0.01),
-        torch.optim.AdamW(adamw_params, lr=1e-4, betas=(0.90, 0.95), weight_decay=0.01),
+        Muon(muon_params, lr=args.muon_lr, momentum=0.95, weight_decay=0.01),
+        torch.optim.AdamW(adamw_params, lr=args.adam_lr, betas=(0.90, 0.95), weight_decay=0.01),
     ]
     # decay lr linearly to 0 across training steps for each optimizer
     schedulers = [
         torch.optim.lr_scheduler.LambdaLR(optimizers[0], lambda step: 1 - step / args.n_steps),
         torch.optim.lr_scheduler.LambdaLR(optimizers[1], lambda step: 1 - step / args.n_steps),
     ]
-
-    # optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.01)
 
     train_files = list(Path("dataset_dir/train_processed_v2").rglob("*.wav"))
     print(f"Found {len(train_files)} training files")
@@ -111,22 +98,6 @@ def main(args):
     sisdr_loss = SISDRLoss()
     l1_loss_fn = torch.nn.L1Loss()
 
-    # cdpam_loss = cdpam.CDPAM(dev='cuda:0')
-
-    # resampler = T.Resample(48000, 22050).to(device)
-
-    # dac_loss = DACFeatureMatchingLoss(device)
-
-    # wavlm_loss = WavLMFeatureMatchingLoss(device)
-
-    # using setting from DAC base.yml:
-    # MelSpectrogramLoss.n_mels: [5, 10, 20, 40, 80, 160, 320]
-    # MelSpectrogramLoss.window_lengths: [32, 64, 128, 256, 512, 1024, 2048]
-    # MelSpectrogramLoss.mel_fmin: [0, 0, 0, 0, 0, 0, 0]
-    # MelSpectrogramLoss.mel_fmax: [null, null, null, null, null, null, null]
-    # MelSpectrogramLoss.pow: 1.0
-    # MelSpectrogramLoss.clamp_eps: 1.0e-5
-    # MelSpectrogramLoss.mag_weight: 0.0
     melspec_loss = MelSpectrogramLoss(
         n_mels=[5, 10, 20, 40, 80, 160, 320],
         window_lengths=[32, 64, 128, 256, 512, 1024, 2048],
@@ -336,8 +307,6 @@ def main(args):
         f.write(f"Unshifted SI-SDR, {np.mean(unshifted_si_sdrs)}, {np.std(unshifted_si_sdrs)}, {np.median(unshifted_si_sdrs)}, {np.min(unshifted_si_sdrs)}, {np.max(unshifted_si_sdrs)}\n")
 
 
-
-
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
     argparser.add_argument("--n_steps", type=int, default=20_000)
@@ -345,6 +314,8 @@ if __name__ == "__main__":
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=4)
     argparser.add_argument("--save_dir", type=str, default="runs/outputs/output108")
+    argparser.add_argument("--muon_lr", type=float, default=1e-3)
+    argparser.add_argument("--adam_lr", type=float, default=1e-4)
 
     args = argparser.parse_args()
 
