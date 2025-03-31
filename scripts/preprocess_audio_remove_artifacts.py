@@ -31,9 +31,9 @@ def process_file_vctk(file, in_folder, out_folder):
     # resample to 96 kHz, for the stretch algorithm
     audio_resamp = resample_up(torch.from_numpy(audio).unsqueeze(0)).squeeze().numpy()
 
-    # do every shift from -1 octave to +1 octave
+    # do some shifts, somewhat fibonaccish
     if not test:
-        shifts = np.arange(-12, 13)
+        shifts = [-12, -8, -5, -3, -2, -1, 1, 2, 3, 5, 8, 12]
     else:
         shifts = [-12, 12]
     for shift in shifts:
@@ -49,6 +49,7 @@ def process_file_vctk(file, in_folder, out_folder):
         sf.write(new_filename.replace(".flac", f"_shifted_{shift}.flac"), shifted_audio, sr)
 
     sf.write(new_filename.replace(".flac", f"_baseline.flac"), audio, sr)
+    sf.write(new_filename.replace(".flac", f"_shifted_0.flac"), audio, sr)
 
 
 
