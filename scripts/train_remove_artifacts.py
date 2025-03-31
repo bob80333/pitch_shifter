@@ -1,7 +1,7 @@
 from muon import Muon
 import torch
 from pitch_shifter.model.model_1d_dac import WavUNetDAC
-from pitch_shifter.data.data import PreShiftedAudioDataset
+from pitch_shifter.data.data import PreShiftedAudioDatasetV2
 from torch.utils.data import DataLoader
 from pathlib import Path
 import argparse
@@ -67,12 +67,11 @@ def main(args):
         torch.optim.lr_scheduler.LambdaLR(optimizers[1], lambda step: 1 - step / args.n_steps),
     ]
 
-    train_files = list(Path("dataset_dir/train_processed_v2").rglob("*.wav"))
-    print(f"Found {len(train_files)} training files")
-    train_dataset = PreShiftedAudioDataset(train_files, samples=16384 * 3)
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=args.batch_size,
+    train_vctk_files = list(Path("dataset_dir/vctk_dataset/train_processed_v3").rglob("*.flac"))
+    train_vctk_dataset = PreShiftedAudioDatasetV2(train_vctk_files, samples=16384 * 3)
+    train_vctk_dataloader = DataLoader(
+        train_vctk_dataset,
+        batch_size=args.batch_size//2, # half batch size for each dataset
         shuffle=True,
         drop_last=True,
         num_workers=args.n_workers,
@@ -81,11 +80,36 @@ def main(args):
         generator=g,
     )
 
-    val_files = list(Path("dataset_dir/val_processed_v2").rglob("*.wav"))
-    print(f"Found {len(val_files)} validation files")
-    val_dataset = PreShiftedAudioDataset(val_files, test=True, samples=16384 * 12)
-    val_dataloader = DataLoader(
-        val_dataset,
+    train_vocalset_files = list(Path("dataset_dir/vocalset_dataset/train_processed_v3").rglob("*.flac"))
+    train_vocalset_dataset = PreShiftedAudioDatasetV2(train_vocalset_files, samples=16384 * 3)
+    train_vocalset_dataloader = DataLoader(
+        train_vocalset_dataset,
+        batch_size=args.batch_size//2, # half batch size for each dataset
+        shuffle=True,
+        drop_last=True,
+        num_workers=args.n_workers,
+        persistent_workers=True,
+        worker_init_fn=seed_worker,
+        generator=g,
+    )
+
+    val_vctk_files = list(Path("dataset_dir/val_processed_v3").rglob("*.flac"))
+    val_vctk_dataset = PreShiftedAudioDatasetV2(val_vctk_files, test=True, samples=16384 * 12)
+    val_vctk_dataloader = DataLoader(
+        val_vctk_dataset,
+        batch_size=32,
+        shuffle=False,
+        drop_last=True,
+        num_workers=args.n_workers,
+        persistent_workers=True,
+        worker_init_fn=seed_worker,
+        generator=g,
+    )
+
+    val_vocalset_files = list(Path("dataset_dir/vocalset_dataset/val_processed_v3").rglob("*.flac"))
+    val_vocalset_dataset = PreShiftedAudioDatasetV2(val_vocalset_files, test=True, samples=16384 * 12)
+    val_vocalset_dataloader = DataLoader(
+        val_vocalset_dataset,
         batch_size=32,
         shuffle=False,
         drop_last=True,
@@ -114,16 +138,19 @@ def main(args):
 
     writer = SummaryWriter(args.save_dir)
 
-    train_gen = inf_train_generator(train_dataloader)
+    vctk_train_gen = inf_train_generator(train_vctk_dataloader)
+    vocalset_train_gen = inf_train_generator(train_vocalset_dataloader)
 
     for step in trange(args.n_steps):
         model.train()
         for opt in optimizers:
             opt.zero_grad()
 
-        audio, shifted_audio = next(train_gen)
-        audio = audio.to(device)
-        shifted_audio = shifted_audio.to(device)
+        audio_vctk, shifted_audio_vctk = next(vctk_train_gen)
+        audio_vocalset, shifted_audio_vocalset = next(vocalset_train_gen)
+
+        audio = torch.cat([audio_vctk, audio_vocalset], dim=0).to(device)
+        shifted_audio = torch.cat([shifted_audio_vctk, shifted_audio_vocalset], dim=0).to(device)
 
         # add channels dimension for losses calculation
         audio = audio.unsqueeze(1)
@@ -161,77 +188,80 @@ def main(args):
 
         if (step + 1) % args.eval_every == 0:
             model.eval()
-            val_loss = 0
             with torch.no_grad():
-                total_val_loss = 0
-                total_val_sisdr = 0
-                total_shifted_loss = 0
-                i = 0
-                for audio, shifted_audio in val_dataloader:
-                    audio = audio.to(device)
-                    shifted_audio = shifted_audio.to(device)
+                
+                val_dl = [val_vctk_dataloader, val_vocalset_dataloader]
+                val_dl_name = ["vctk", "vocalset"]
+                for loader, name in zip(val_dl, val_dl_name):
+                    total_val_loss = 0
+                    total_val_sisdr = 0
+                    total_shifted_loss = 0
+                    i = 0
+                    for audio, shifted_audio in loader:
+                        audio = audio.to(device)
+                        shifted_audio = shifted_audio.to(device)
 
-                    # add channels dimension for losses calculation
-                    audio = audio.unsqueeze(1)
-                    shifted_audio = shifted_audio.unsqueeze(1)
+                        # add channels dimension for losses calculation
+                        audio = audio.unsqueeze(1)
+                        shifted_audio = shifted_audio.unsqueeze(1)
 
-                    # remove pitch artifacts from shifted audio
-                    unshifted_audio = opt_model(shifted_audio)
-
-
-                    # calculate sisdr loss
-                    val_sisdr = sisdr_loss(unshifted_audio, audio)
-                    # convert to AudioSignal for MelSpectrogramLoss
-                    audio_sig = AudioSignal(audio, sr)
-                    unshifted_audio_sig = AudioSignal(unshifted_audio, sr)
-                    shifted_audio_sig = AudioSignal(shifted_audio, sr)
-
-                    # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
-                    val_loss = melspec_loss(unshifted_audio_sig, audio_sig)
-                    # calculate the error for the shifted audio, should have artifacts from shifting, the model output should have a better error than this
-                    shifted_loss = melspec_loss(shifted_audio_sig, audio_sig)
-
-                    total_val_loss += val_loss
-                    total_val_sisdr += val_sisdr
-                    total_shifted_loss += shifted_loss
-                    i += 1
-
-                total_val_loss /= i
-                total_shifted_loss /= i
-                total_val_sisdr /= i
-
-                writer.add_scalar("val/mel_loss", total_val_loss, step + 1)
-                writer.add_scalar("val/sisdr", total_val_sisdr, step + 1)
-                # baseline, if model output is worse than this, it's not useful
-                writer.add_scalar("val/shifted_mel_loss", total_shifted_loss, step + 1)
-
-                # save an example output
-                writer.add_audio("val/audio", audio[0], step + 1, sample_rate=sr)
-                writer.add_audio(
-                    "val/shifted_audio", shifted_audio[0], step + 1, sample_rate=sr
-                )
-                writer.add_audio(
-                    "val/unshifted_audio", unshifted_audio[0], step + 1, sample_rate=sr
-                )
-
-                # spectrogram visualization
-
-                audio_spec = to_log(to_spectrogram(audio[0]))
-                # normalize to between 0 and 1
-                audio_spec = (audio_spec - audio_spec.min()) / (audio_spec.max() - audio_spec.min())
-                # do for the rest
-                shifted_audio_spec = to_log(to_spectrogram(shifted_audio[0]))
-                shifted_audio_spec = (shifted_audio_spec - shifted_audio_spec.min()) / (shifted_audio_spec.max() - shifted_audio_spec.min())
-                unshifted_audio_spec = to_log(to_spectrogram(unshifted_audio[0]))
-                unshifted_audio_spec = (unshifted_audio_spec - unshifted_audio_spec.min()) / (unshifted_audio_spec.max() - unshifted_audio_spec.min())
+                        # remove pitch artifacts from shifted audio
+                        unshifted_audio = opt_model(shifted_audio)
 
 
-                # save spectrograms
-                writer.add_image("val/audio_spec", audio_spec, step+1)
-                writer.add_image("val/unshifted_audio_spec", unshifted_audio_spec, step+1)
-                writer.add_image("val/shifted_audio_spec", shifted_audio_spec, step+1)
+                        # calculate sisdr loss
+                        val_sisdr = sisdr_loss(unshifted_audio, audio)
+                        # convert to AudioSignal for MelSpectrogramLoss
+                        audio_sig = AudioSignal(audio, sr)
+                        unshifted_audio_sig = AudioSignal(unshifted_audio, sr)
+                        shifted_audio_sig = AudioSignal(shifted_audio, sr)
 
-            print(f"Step {step+1}, val_loss: {total_val_loss}")
+                        # calculate stft error for unshifted audio, should not have artifacts from shifting and should be back to original pitch
+                        val_loss = melspec_loss(unshifted_audio_sig, audio_sig)
+                        # calculate the error for the shifted audio, should have artifacts from shifting, the model output should have a better error than this
+                        shifted_loss = melspec_loss(shifted_audio_sig, audio_sig)
+
+                        total_val_loss += val_loss
+                        total_val_sisdr += val_sisdr
+                        total_shifted_loss += shifted_loss
+                        i += 1
+
+                    total_val_loss /= i
+                    total_shifted_loss /= i
+                    total_val_sisdr /= i
+
+                    writer.add_scalar(f"val_{name}/mel_loss", total_val_loss, step + 1)
+                    writer.add_scalar(f"val_{name}/sisdr", total_val_sisdr, step + 1)
+                    # baseline, if model output is worse than this, it's not useful
+                    writer.add_scalar(f"val_{name}/shifted_mel_loss", total_shifted_loss, step + 1)
+
+                    # save an example output
+                    writer.add_audio(f"val_{name}/audio", audio[0], step + 1, sample_rate=sr)
+                    writer.add_audio(
+                        f"val_{name}/shifted_audio", shifted_audio[0], step + 1, sample_rate=sr
+                    )
+                    writer.add_audio(
+                        f"val_{name}/unshifted_audio", unshifted_audio[0], step + 1, sample_rate=sr
+                    )
+
+                    # spectrogram visualization
+
+                    audio_spec = to_log(to_spectrogram(audio[0]))
+                    # normalize to between 0 and 1
+                    audio_spec = (audio_spec - audio_spec.min()) / (audio_spec.max() - audio_spec.min())
+                    # do for the rest
+                    shifted_audio_spec = to_log(to_spectrogram(shifted_audio[0]))
+                    shifted_audio_spec = (shifted_audio_spec - shifted_audio_spec.min()) / (shifted_audio_spec.max() - shifted_audio_spec.min())
+                    unshifted_audio_spec = to_log(to_spectrogram(unshifted_audio[0]))
+                    unshifted_audio_spec = (unshifted_audio_spec - unshifted_audio_spec.min()) / (unshifted_audio_spec.max() - unshifted_audio_spec.min())
+
+
+                    # save spectrograms
+                    writer.add_image(f"val_{name}/audio_spec", audio_spec, step+1)
+                    writer.add_image(f"val_{name}/unshifted_audio_spec", unshifted_audio_spec, step+1)
+                    writer.add_image(f"val_{name}/shifted_audio_spec", shifted_audio_spec, step+1)
+
+                print(f"Step {step+1}, {name}_val_loss: {total_val_loss}")
 
             torch.save(
                 model.state_dict(), os.path.join(args.save_dir, f"model_{step+1}.pt")
@@ -255,65 +285,66 @@ def main(args):
     with torch.no_grad():
         from tqdm import tqdm
         model.eval()
-        for audio, shifted_audio in tqdm(val_dataloader):
-            audio, shifted_audio = audio.to(device), shifted_audio.to(device)
-            # add channels
-            audio = audio.unsqueeze(1)
-            shifted_audio = shifted_audio.unsqueeze(1)
+        for loader, name in zip(val_dl, val_dl_name):
+            for audio, shifted_audio in tqdm(loader):
+                audio, shifted_audio = audio.to(device), shifted_audio.to(device)
+                # add channels
+                audio = audio.unsqueeze(1)
+                shifted_audio = shifted_audio.unsqueeze(1)
 
-            unshifted_audio = opt_model(shifted_audio)
+                unshifted_audio = opt_model(shifted_audio)
 
-            # negate because loss is inverted
-            shifted_si_sdr = -sisdr_loss(shifted_audio, audio)
-            unshifted_si_sdr = -sisdr_loss(unshifted_audio, audio)
+                # negate because loss is inverted
+                shifted_si_sdr = -sisdr_loss(shifted_audio, audio)
+                unshifted_si_sdr = -sisdr_loss(unshifted_audio, audio)
 
-            # pq = Production Quality
-            audio_input = [{"path": a, "sample_rate": sr} for a in audio]
-            shifted_audio_input = [{"path": a, "sample_rate": sr} for a in shifted_audio]
-            unshifted_audio_input = [{"path": a, "sample_rate": sr} for a in unshifted_audio]
-            original_pq = predictor.forward(audio_input)
-            shifted_pq = predictor.forward(shifted_audio_input)
-            unshifted_pq = predictor.forward(unshifted_audio_input)
+                # pq = Production Quality
+                audio_input = [{"path": a, "sample_rate": sr} for a in audio]
+                shifted_audio_input = [{"path": a, "sample_rate": sr} for a in shifted_audio]
+                unshifted_audio_input = [{"path": a, "sample_rate": sr} for a in unshifted_audio]
+                original_pq = predictor.forward(audio_input)
+                shifted_pq = predictor.forward(shifted_audio_input)
+                unshifted_pq = predictor.forward(unshifted_audio_input)
 
-            shifted_si_sdrs.append(shifted_si_sdr.tolist())
-            unshifted_si_sdrs.append(unshifted_si_sdr.tolist())
+                shifted_si_sdrs.append(shifted_si_sdr.tolist())
+                unshifted_si_sdrs.append(unshifted_si_sdr.tolist())
 
-            # pull out PQ values
-            original_pqs.append([pq["PQ"] for pq in original_pq])
-            shifted_pqs.append([pq["PQ"] for pq in shifted_pq])
-            unshifted_pqs.append([pq["PQ"] for pq in unshifted_pq])
+                # pull out PQ values
+                original_pqs.append([pq["PQ"] for pq in original_pq])
+                shifted_pqs.append([pq["PQ"] for pq in shifted_pq])
+                unshifted_pqs.append([pq["PQ"] for pq in unshifted_pq])
 
-    # save results
-    with open(os.path.join(args.save_dir, "results.txt"), "w") as f:
-        f.write("Shifted PQs\n")
-        f.write(str(shifted_pqs))
-        f.write("\n")
-        f.write("Unshifted PQs\n")
-        f.write(str(unshifted_pqs))
-        f.write("\n")
-        f.write("Shifted SI-SDRs\n")
-        f.write(str(shifted_si_sdrs))
-        f.write("\n")
-        f.write("Unshifted SI-SDRs\n")
-        f.write(str(unshifted_si_sdrs))
-        f.write("\n")
+        # save results
+        with open(os.path.join(args.save_dir, f"{name}_results.txt"), "w") as f:
+            f.write("Shifted PQs\n")
+            f.write(str(shifted_pqs))
+            f.write("\n")
+            f.write("Unshifted PQs\n")
+            f.write(str(unshifted_pqs))
+            f.write("\n")
+            f.write("Shifted SI-SDRs\n")
+            f.write(str(shifted_si_sdrs))
+            f.write("\n")
+            f.write("Unshifted SI-SDRs\n")
+            f.write(str(unshifted_si_sdrs))
+            f.write("\n")
 
-    with open(os.path.join(args.save_dir, "summary.txt"), "w") as f:
-        f.write(f"What, mean, std, median, min, max\n")
-        f.write(f"Original PQ, {np.mean(original_pqs)}, {np.std(original_pqs)}, {np.median(original_pqs)}, {np.min(original_pqs)}, {np.max(original_pqs)}\n")
-        f.write(f"Shifted PQ, {np.mean(shifted_pqs)}, {np.std(shifted_pqs)}, {np.median(shifted_pqs)}, {np.min(shifted_pqs)}, {np.max(shifted_pqs)}\n")
-        f.write(f"Unshifted PQ, {np.mean(unshifted_pqs)}, {np.std(unshifted_pqs)}, {np.median(unshifted_pqs)}, {np.min(unshifted_pqs)}, {np.max(unshifted_pqs)}\n")
-        f.write(f"Shifted SI-SDR, {np.mean(shifted_si_sdrs)}, {np.std(shifted_si_sdrs)}, {np.median(shifted_si_sdrs)}, {np.min(shifted_si_sdrs)}, {np.max(shifted_si_sdrs)}\n")
-        f.write(f"Unshifted SI-SDR, {np.mean(unshifted_si_sdrs)}, {np.std(unshifted_si_sdrs)}, {np.median(unshifted_si_sdrs)}, {np.min(unshifted_si_sdrs)}, {np.max(unshifted_si_sdrs)}\n")
+        with open(os.path.join(args.save_dir, f"{name}_summary.txt"), "w") as f:
+            f.write(f"What, mean, std, median, min, max\n")
+            f.write(f"Original PQ, {np.mean(original_pqs)}, {np.std(original_pqs)}, {np.median(original_pqs)}, {np.min(original_pqs)}, {np.max(original_pqs)}\n")
+            f.write(f"Shifted PQ, {np.mean(shifted_pqs)}, {np.std(shifted_pqs)}, {np.median(shifted_pqs)}, {np.min(shifted_pqs)}, {np.max(shifted_pqs)}\n")
+            f.write(f"Unshifted PQ, {np.mean(unshifted_pqs)}, {np.std(unshifted_pqs)}, {np.median(unshifted_pqs)}, {np.min(unshifted_pqs)}, {np.max(unshifted_pqs)}\n")
+            f.write(f"Shifted SI-SDR, {np.mean(shifted_si_sdrs)}, {np.std(shifted_si_sdrs)}, {np.median(shifted_si_sdrs)}, {np.min(shifted_si_sdrs)}, {np.max(shifted_si_sdrs)}\n")
+            f.write(f"Unshifted SI-SDR, {np.mean(unshifted_si_sdrs)}, {np.std(unshifted_si_sdrs)}, {np.median(unshifted_si_sdrs)}, {np.min(unshifted_si_sdrs)}, {np.max(unshifted_si_sdrs)}\n")
 
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=100_000)
+    argparser.add_argument("--n_steps", type=int, default=20_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=4)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output109")
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output110")
     argparser.add_argument("--muon_lr", type=float, default=1e-3)
     argparser.add_argument("--adam_lr", type=float, default=1e-4)
 
