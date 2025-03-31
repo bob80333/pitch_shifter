@@ -19,7 +19,6 @@ def process_file_vctk(file, in_folder, out_folder):
         test = False
 
     new_filename = file.replace(in_folder, out_folder)
-    print(new_filename)
     # make sure the directory exists
     os.makedirs(os.path.dirname(new_filename), exist_ok=True)
 
