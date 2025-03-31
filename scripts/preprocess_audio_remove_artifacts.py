@@ -99,24 +99,74 @@ def process_file_vocalset(file, in_folder, out_folder, train_prob=0.8, val_prob=
 
     sf.write(new_filename.replace(".wav", f"_baseline.flac"), audio, 48000)
 
-# multiprocessing
 
+
+# wrapper functions to unpack arguments for multiprocessing
+def wrapper_vctk(args):
+    # args will be a tuple like (file, in_folder, out_folder)
+    return process_file_vctk(*args)
+
+def wrapper_vocalset(args):
+    # args will be a tuple like (file, in_folder, out_folder)
+    # The default values for train_prob etc. in process_file_vocalset will be used
+    return process_file_vocalset(*args)
+
+# multiprocessing
 if __name__ == '__main__':
-    in_folders = ["dataset_dir/vctk_dataset/train", "dataset_dir/vctk_dataset/val", "dataset_dir/vctk_dataset/test"]
-    out_folders = ["dataset_dir/vctk_dataset/train_processed_v3", "dataset_dir/vctk_dataset/val_processed_v3", "dataset_dir/vctk_dataset/test_processed_v3"]
-    for in_folder, out_folder in zip(in_folders, out_folders):
+
+
+
+    # --- VCTK Processing ---
+    print("Processing VCTK...")
+    in_folders_vctk = ["dataset_dir/vctk_dataset/train", "dataset_dir/vctk_dataset/val", "dataset_dir/vctk_dataset/test"]
+    out_folders_vctk = ["dataset_dir/vctk_dataset/train_processed_v3", "dataset_dir/vctk_dataset/val_processed_v3", "dataset_dir/vctk_dataset/test_processed_v3"]
+
+    for in_folder, out_folder in zip(in_folders_vctk, out_folders_vctk):
+        print(f"  Processing folder: {in_folder}")
+        # Use rglob directly inside list comprehension for potentially better memory usage if needed
         files = [str(x.absolute()) for x in Path(in_folder).rglob("*.flac")]
 
-        os.makedirs(out_folder, exist_ok=True)
-        with Pool() as pool:
-            results = list(tqdm(pool.imap(process_file_vctk, files, [in_folder]*len(files), [out_folder]*len(files)), total=len(files)))
+        if not files:
+            print(f"    No *.flac files found in {in_folder}. Skipping.")
+            continue
+        print(f"    Found {len(files)} files.")
 
-    in_folders = ["dataset_dir/vocalset_dataset/FULL"]
-    out_folders = ["dataset_dir/vocalset_dataset/FULL_processed_v3"]
-    for in_folder, out_folder in zip(in_folders, out_folders):
+        os.makedirs(out_folder, exist_ok=True)
+
+        # Create an iterable of argument tuples
+        # Each element is a tuple: (file, in_folder, out_folder)
+        args_iterable_vctk = zip(files, [in_folder] * len(files), [out_folder] * len(files))
+
+        with Pool() as pool:
+            # Pass the wrapper function and the iterable of argument tuples to imap
+            results_vctk = list(tqdm(pool.imap(wrapper_vctk, args_iterable_vctk),
+                                    total=len(files),
+                                    desc=f"Processing {Path(in_folder).name}"))
+
+    # --- VocalSet Processing ---
+    print("\nProcessing VocalSet...")
+    in_folders_vocalset = ["dataset_dir/vocalset_dataset/FULL"]
+    out_folders_vocalset = ["dataset_dir/vocalset_dataset/FULL_processed_v3"]
+
+    for in_folder, out_folder in zip(in_folders_vocalset, out_folders_vocalset):
+        print(f"  Processing folder: {in_folder}")
         files = [str(x.absolute()) for x in Path(in_folder).rglob("*.wav")]
 
+        if not files:
+            print(f"    No *.wav files found in {in_folder}. Skipping.")
+            continue
+        print(f"    Found {len(files)} files.")
+
         os.makedirs(out_folder, exist_ok=True)
+
+        # Create an iterable of argument tuples
+        # Each element is a tuple: (file, in_folder, out_folder)
+        args_iterable_vocalset = zip(files, [in_folder] * len(files), [out_folder] * len(files))
+
         with Pool() as pool:
-            results = list(tqdm(pool.imap(process_file_vocalset, files, [in_folder]*len(files), [out_folder]*len(files)), total=len(files)))
-    print("Done!")
+            # Pass the wrapper function and the iterable of argument tuples to imap
+            results_vocalset = list(tqdm(pool.imap(wrapper_vocalset, args_iterable_vocalset),
+                                        total=len(files),
+                                        desc=f"Processing {Path(in_folder).name}"))
+
+    print("\nDone!")
