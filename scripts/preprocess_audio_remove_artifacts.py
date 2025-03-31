@@ -10,7 +10,7 @@ import torchaudio.transforms as T
 import os
 
 in_folder = "data\\train"
-out_folder = "data\\train_processed_v2"
+out_folder = "data\\train_processed_v3"
 
 files = [str(x.absolute()) for x in Path(in_folder).rglob("*.flac")]
 
@@ -34,8 +34,8 @@ def process_file(file, in_folder=in_folder, out_folder=out_folder):
     # resample to 96 kHz, for the stretch algorithm
     audio_resamp = resample_up(torch.from_numpy(audio).unsqueeze(0)).squeeze().numpy()
 
-    # only deal with large shifts for now
-    shifts = [-12, -10, 10, 12]
+    # do every shift from -1 octave to +1 octave
+    shifts = np.arange(-12, 13)
     for shift in shifts:
         stretch.setTransposeSemitones(shift)
         shifted_audio = stretch.process(audio_resamp[None, :])
@@ -46,9 +46,9 @@ def process_file(file, in_folder=in_folder, out_folder=out_folder):
         shifted_audio = resample_down(torch.from_numpy(shifted_audio).unsqueeze(0)).squeeze().numpy()
 
         # save the audio file
-        sf.write(new_filename.replace(".flac", f"_shifted_{shift}.wav"), shifted_audio, sr)
+        sf.write(new_filename.replace(".flac", f"_shifted_{shift}.flac"), shifted_audio, sr)
 
-    sf.write(new_filename.replace(".flac", f"_baseline.wav"), audio, sr)
+    sf.write(new_filename.replace(".flac", f"_baseline.flac"), audio, sr)
 
 # multiprocessing
 

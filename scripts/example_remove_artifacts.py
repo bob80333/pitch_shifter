@@ -3,12 +3,12 @@ import python_stretch as ps
 import numpy as np
 import torch
 from torchaudio.functional import resample
-audio, sr = sf.read("p250_003_mic2.flac")
-#audio, sr = sf.read("ado_singing.wav")
+#audio, sr = sf.read("example/p250_003_mic2.flac")
+audio, sr = sf.read("example/ado_singing.wav")
 
 print(audio.shape, sr)
 
-sf.write("original.wav", audio, sr)
+sf.write("example/original.wav", audio, sr)
 
 stretch = ps.Signalsmith.Stretch()
 stretch.preset(1, sr*2)
@@ -19,20 +19,20 @@ stretch.setTransposeSemitones(12)
 shifted_up = stretch.process(resampled_audio[None, :])
 
 up_octave = resample(torch.from_numpy(shifted_up).unsqueeze(0), sr*2, sr).squeeze().numpy()
-sf.write("up_octave.wav", up_octave, sr)
+sf.write("example/up_octave.wav", up_octave, sr)
 
 stretch.setTransposeSemitones(-12)
 shifted_up = stretch.process(shifted_up)
 
 shifted = resample(torch.from_numpy(shifted_up).unsqueeze(0), sr*2, sr).squeeze().numpy()
 
-sf.write("shifted.wav", shifted, sr)
+sf.write("example/shifted.wav", shifted, sr)
 
 import torch
-from pitch_shifter.model.model_1d import WavUNet
+from pitch_shifter.model.model_1d_dac import WavUNetDAC
 
-model = WavUNet().to("cuda")
-model.load_state_dict(torch.load("outputs/output81/model_100000.pt"))
+model = WavUNetDAC().to("cuda")
+model.load_state_dict(torch.load("runs/outputs/output109/model_100000.pt"))
 
 
 shifted_up = torch.tensor(shifted)
@@ -50,7 +50,7 @@ with torch.no_grad():
 unshifted_audio = unshifted_audio[:, :, :-pad]
 
 unshifted_audio = unshifted_audio.squeeze().detach().cpu().numpy()
-sf.write("model_restored.wav", unshifted_audio, sr)
+sf.write("example/model_restored.wav", unshifted_audio, sr)
 
 # try removing artifacts from audio with pitch shifting
 
@@ -66,14 +66,14 @@ with torch.no_grad():
 # remove padding
 up_octave_restored = up_octave_restored[:, :, :-pad]
 
-sf.write("up_octave_restored.wav", up_octave_restored.squeeze().detach().cpu().numpy(), sr)
+sf.write("example/up_octave_restored.wav", up_octave_restored.squeeze().detach().cpu().numpy(), sr)
 
 # re-shift the up_octave_restored back down to original pitch to judge how well the model removed the artifacts
 up_octave_restored_down = up_octave_restored.squeeze().detach().cpu().numpy()
 stretch.setTransposeSemitones(-12)
 up_octave_restored_down = stretch.process(up_octave_restored_down[None, :])[0]
 
-sf.write("up_octave_restored_down.wav", up_octave_restored_down, sr)
+sf.write("example/up_octave_restored_down.wav", up_octave_restored_down, sr)
 
 
 # now run model again on the up_octave_restored_down to see if restoring at both up and down works better
@@ -90,7 +90,7 @@ with torch.no_grad():
 # remove padding
 up_octave_restored_down_restored = up_octave_restored_down_restored[:, :, :-pad]
 
-sf.write("up_octave_restored_down_restored.wav", up_octave_restored_down_restored.squeeze().detach().cpu().numpy(), sr)
+sf.write("example/up_octave_restored_down_restored.wav", up_octave_restored_down_restored.squeeze().detach().cpu().numpy(), sr)
 
 
 
@@ -106,7 +106,7 @@ shifted_up = shifted_up[:, :, :-pad].to("cuda")
 
 # add very small noise to audio to see how it affects the metrics
 noised_audio = audio + 1e-4 * torch.randn_like(audio)
-sf.write("noised_audio.wav", noised_audio.squeeze().cpu().numpy(), sr)
+sf.write("example/noised_audio.wav", noised_audio.squeeze().cpu().numpy(), sr)
 
 si_sdr_self = -si_sdr_zero_mean(audio, audio)
 si_sdr_self_noised = -si_sdr_zero_mean(noised_audio, audio)
@@ -115,7 +115,7 @@ si_sdr_shifted = -si_sdr_zero_mean(shifted_up, audio)
 up_octave_restored_down = torch.tensor(up_octave_restored_down).to("cuda")
 si_sdr_restored_up_down = -si_sdr_zero_mean(up_octave_restored_down, audio)
 up_octave_restored_down_restored = up_octave_restored_down_restored.squeeze().detach().cpu().numpy()
-sf.write("up_octave_restored_down_restored.wav", up_octave_restored_down_restored, sr)
+sf.write("example/up_octave_restored_down_restored.wav", up_octave_restored_down_restored, sr)
 up_octave_restored_down_restored = torch.tensor(up_octave_restored_down_restored).to("cuda")
 si_sdr_restored_up_down_restored = -si_sdr_zero_mean(up_octave_restored_down_restored, audio)
 

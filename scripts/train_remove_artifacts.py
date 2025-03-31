@@ -309,11 +309,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=20_000)
+    argparser.add_argument("--n_steps", type=int, default=100_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=32)
     argparser.add_argument("--n_workers", type=int, default=4)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output108")
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output109")
     argparser.add_argument("--muon_lr", type=float, default=1e-3)
     argparser.add_argument("--adam_lr", type=float, default=1e-4)
 

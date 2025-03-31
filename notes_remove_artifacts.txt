@@ -916,3 +916,30 @@ linear decay to 0
 
 20k steps for comparison purposes
 output108, 20k steps, linear decay to 0
+
+What, mean, std, median, min, max
+Original PQ, 7.397896721736709, 0.2775515563940755, 7.4266557693481445, 5.682501316070557, 8.255830764770508
+Shifted PQ, 6.341460106088154, 0.6139255917877597, 6.36174201965332, 4.282208442687988, 8.050172805786133
+Unshifted PQ, 7.195255577675442, 0.3137228682552299, 7.224622011184692, 5.4418792724609375, 8.086467742919922
+Shifted SI-SDR, -18.974841641741737, 10.088221835618912, -16.85178565979004, -79.63749694824219, 2.459331512451172
+Unshifted SI-SDR, -9.82679199883615, 9.053880173735394, -7.994324207305908, -78.3104248046875, 7.509464263916016
+
+better, statistically significant
+unpaired test got p < 0.05
+paired test with 1999 samples (limit is 2k) got p < 0.0001
+
+so linear decay is better than not, by about 0.015 mean PQ
+If this holds up for a 100k step run, since the remaining gap between original audio PQ mean is only ~0.14, then that is ~10% reduction in the gap
+
+The improvement starts becoming noticable in metrics around the 16k step mark, or about 80% through training
+this makes sense, because at that point the lr decay would have dropped lr to ~20% of original, so it is starting to impact the training
+Since the 20% mark for 100k steps has 20k steps remaining (the entire length of this training run!), the lr decay should have more opportunity to impact the final result
+
+output109, 100k steps, linear decay to 0
+
+What, mean, std, median, min, max
+Original PQ, 7.397888841802504, 0.27755410045302487, 7.426485061645508, 5.6817240715026855, 8.255695343017578
+Shifted PQ, 6.341449345559327, 0.6139276536274133, 6.361863374710083, 4.283082962036133, 8.050267219543457
+Unshifted PQ, 7.310329051382506, 0.26103831113450315, 7.330963373184204, 5.977506637573242, 8.18637466430664
+Shifted SI-SDR, -18.974841641741737, 10.088221835618912, -16.85178565979004, -79.63749694824219, 2.459331512451172
+Unshifted SI-SDR, -8.482395598423905, 9.1091620735658, -6.631881475448608, -79.22564697265625, 8.787049293518066
