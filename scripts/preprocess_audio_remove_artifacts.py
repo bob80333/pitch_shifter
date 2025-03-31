@@ -83,7 +83,7 @@ def process_file_vocalset(file, in_folder, out_folder, train_prob=0.8, val_prob=
 
     # do every shift from -1 octave to +1 octave
     if not test:
-        shifts = np.arange(-12, 13)
+        shifts = [-12, -8, -5, -3, -2, -1, 1, 2, 3, 5, 8, 12]
     else:
         shifts = [-12, 12]
     for shift in shifts:
@@ -99,6 +99,7 @@ def process_file_vocalset(file, in_folder, out_folder, train_prob=0.8, val_prob=
         sf.write(new_filename.replace(".wav", f"_shifted_{shift}.flac"), shifted_audio, 48000)
 
     sf.write(new_filename.replace(".wav", f"_baseline.flac"), audio, 48000)
+    sf.write(new_filename.replace(".wav", f"_shifted_0.flac"), audio, 48000)
 
 
 
