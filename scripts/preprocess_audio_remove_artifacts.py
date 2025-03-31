@@ -19,6 +19,7 @@ def process_file_vctk(file, in_folder, out_folder):
         test = False
 
     new_filename = file.replace(in_folder, out_folder)
+    print(new_filename)
     # make sure the directory exists
     os.makedirs(os.path.dirname(new_filename), exist_ok=True)
 
@@ -118,8 +119,8 @@ if __name__ == '__main__':
 
     # --- VCTK Processing ---
     print("Processing VCTK...")
-    in_folders_vctk = ["dataset_dir/vctk_dataset/train", "dataset_dir/vctk_dataset/val", "dataset_dir/vctk_dataset/test"]
-    out_folders_vctk = ["dataset_dir/vctk_dataset/train_processed_v3", "dataset_dir/vctk_dataset/val_processed_v3", "dataset_dir/vctk_dataset/test_processed_v3"]
+    in_folders_vctk = ["dataset_dir\\vctk_dataset\\train", "dataset_dir\\vctk_dataset\\val", "dataset_dir\\vctk_dataset\\test"]
+    out_folders_vctk = ["dataset_dir\\vctk_dataset\\train_processed_v3", "dataset_dir\\vctk_dataset\\val_processed_v3", "dataset_dir\\vctk_dataset\\test_processed_v3"]
 
     for in_folder, out_folder in zip(in_folders_vctk, out_folders_vctk):
         print(f"  Processing folder: {in_folder}")
@@ -145,8 +146,8 @@ if __name__ == '__main__':
 
     # --- VocalSet Processing ---
     print("\nProcessing VocalSet...")
-    in_folders_vocalset = ["dataset_dir/vocalset_dataset/FULL"]
-    out_folders_vocalset = ["dataset_dir/vocalset_dataset/FULL_processed_v3"]
+    in_folders_vocalset = ["dataset_dir\\vocalset_dataset\\FULL"]
+    out_folders_vocalset = ["dataset_dir\\vocalset_dataset\\FULL_processed_v3"]
 
     for in_folder, out_folder in zip(in_folders_vocalset, out_folders_vocalset):
         print(f"  Processing folder: {in_folder}")
