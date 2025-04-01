@@ -9,4 +9,4 @@ the problem is that they may not generalize to fixing audio at pitches they were
 The models seem to have some generalization, but to improve it, singing data from vocalset is added, as well as shifting across a broader range (up and down or down and up).
 
 everything with "_unshift" is about models that undo a pitch shift.
-They do not work well, except in the GAN setting, which is much slower to train.
+They do not work well, except in the GAN setting, which is much slower to train.  Overall, results for directly shifting are much worse than using an existing algorithm to shift, and the model to cleanup the artifacts as a second stage.
