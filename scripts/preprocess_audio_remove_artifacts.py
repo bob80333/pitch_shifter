@@ -25,15 +25,15 @@ def process_file_vctk(file, in_folder, out_folder):
     audio, sr = sf.read(file)
     audio = audio.astype(np.float32) # convert to float32
 
-    resample_up = T.Resample(sr, 48_000*2)
-    resample_down = T.Resample(48_000*2, 48_000)
+    resample_up = T.Resample(sr, 48_000*2, resampling_method='sinc_interp_kaiser')
+    resample_down = T.Resample(48_000*2, 48_000, lowpass_filter_width=100, resampling_method='sinc_interp_kaiser')
 
     # resample to 96 kHz, for the stretch algorithm
     audio_resamp = resample_up(torch.from_numpy(audio).unsqueeze(0)).squeeze().numpy()
 
     # do some shifts, somewhat fibonaccish
     if not test:
-        shifts = [-12, -8, -5, -3, -2, -1, 1, 2, 3, 5, 8, 12]
+        shifts = [-12, -7, -3, -2, -1, 1, 2, 3, 7, 12]
     else:
         shifts = [-12, 12]
     for shift in shifts:
@@ -46,10 +46,11 @@ def process_file_vctk(file, in_folder, out_folder):
         shifted_audio = resample_down(torch.from_numpy(shifted_audio).unsqueeze(0)).squeeze().numpy()
 
         # save the audio file
-        sf.write(new_filename.replace(".flac", f"_shifted_{shift}.flac"), shifted_audio, sr)
+        sf.write(new_filename.replace(".flac", f"_shifted_{shift}.flac"), shifted_audio, 48_000)
 
-    sf.write(new_filename.replace(".flac", f"_baseline.flac"), audio, sr)
-    sf.write(new_filename.replace(".flac", f"_shifted_0.flac"), audio, sr)
+    sf.write(new_filename.replace(".flac", f"_baseline.flac"), audio, 48_000)
+    if not test:
+        sf.write(new_filename.replace(".flac", f"_shifted_0.flac"), audio, 48_000)
 
 
 
@@ -63,10 +64,10 @@ def process_file_vocalset(file, in_folder, out_folder, train_prob=0.8, val_prob=
         test=False
     elif random_number < train_prob + val_prob:
         out_folder = out_folder.replace("FULL", "val")
-        test=False
+        test=True
     else:
         out_folder = out_folder.replace("FULL", "test")
-        test=False
+        test=True
     
     new_filename = file.replace(in_folder, out_folder)
     # make sure the directory exists
@@ -75,15 +76,17 @@ def process_file_vocalset(file, in_folder, out_folder, train_prob=0.8, val_prob=
     audio, sr = sf.read(file)
     audio = audio.astype(np.float32) # convert to float32
 
-    resample_up = T.Resample(sr, 48_000*2)
-    resample_down = T.Resample(48_000*2, 48_000)
+    resample_up = T.Resample(sr, 48_000*2, resampling_method='sinc_interp_kaiser')
+    resample_down = T.Resample(48_000*2, 48_000, lowpass_filter_width=100, resampling_method='sinc_interp_kaiser')
+
+    resample_original = T.Resample(sr, 48_000, resampling_method='sinc_interp_kaiser')
 
     # resample to 96 kHz, for the stretch algorithm
     audio_resamp = resample_up(torch.from_numpy(audio).unsqueeze(0)).squeeze().numpy()
 
-    # do every shift from -1 octave to +1 octave
+    # do some shifts, somewhat fibonaccish
     if not test:
-        shifts = [-12, -8, -5, -3, -2, -1, 1, 2, 3, 5, 8, 12]
+        shifts = [-12, -7, -3, -2, -1, 1, 2, 3, 7, 12]
     else:
         shifts = [-12, 12]
     for shift in shifts:
@@ -98,8 +101,12 @@ def process_file_vocalset(file, in_folder, out_folder, train_prob=0.8, val_prob=
         # save the audio file
         sf.write(new_filename.replace(".wav", f"_shifted_{shift}.flac"), shifted_audio, 48000)
 
+    # vocalset is not 48khz so we need to resample the original audio to 48khz
+    audio = resample_original(torch.from_numpy(audio).unsqueeze(0)).squeeze().numpy()
+
     sf.write(new_filename.replace(".wav", f"_baseline.flac"), audio, 48000)
-    sf.write(new_filename.replace(".wav", f"_shifted_0.flac"), audio, 48000)
+    if not test:
+        sf.write(new_filename.replace(".wav", f"_shifted_0.flac"), audio, 48000)
 
 
 
@@ -115,8 +122,6 @@ def wrapper_vocalset(args):
 
 # multiprocessing
 if __name__ == '__main__':
-
-
 
     # --- VCTK Processing ---
     print("Processing VCTK...")
