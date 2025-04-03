@@ -948,3 +948,109 @@ Gap is now ~0.088
 However, model completely fails on singing data
 To rectify this, adding in the VocalSet dataset, which has permissive licensing (Creative Commons Attribution 4.0 International)
 
+output110
+Initial version, 20k steps with similar setup as before
+Half of each batch is vctk, other half is vocalset
+VCTK evals and vocalset evals are separate both during / after training
+During eval, testing on -12 and +12 shifted audios
+During training, using -12, -8, -5, -3, -2, -1, 0, 1, 2, 3, 5, 8, 12
+Gives a good range of possible shifts, but saves some preprocessing time by not doing every shift
+Especially as the most important shifts are smaller, since most normal singing corrections are around 1-2 semitones, not an octave off
+The testing is at octave to test extreme values
+20k steps to see how well model works initially, creating new baseline
+
+training loss should be lower than previous runs, due to addition of easier shifts, including shift of 0
+
+due to the batch being 1/2 vctk and 1/2 vocalset, the variance will be higher
+additionally, there used to be 32 samples of same shift
+now there are 11 possible shifts
+so total # samples per shift per dataset is 22x lower
+to solve this, decrease lr
+
+before:
+muon_lr = 1e-3, adamw_lr = 1e-4
+now:
+muon_lr = 2e-4, adamw_lr = 2e-5
+
+Finally, due to 2x the number of samples in validation VCTK (shift -12 and shift +12), and introduction of vocalset to validation
+to make sure validation doesn't take too much time, following speakers moved from validation to testing
+p315, p360, p239, p271, p280, p306
+
+overall, results poor and not really improving even after 8k steps
+
+instead, try increasing batch
+output111:
+to solve this, increase batch size
+to do that, have to decrease model width
+channels = [16, 32, 64, 128, 256]
+initial_channels = 8
+batch_size = 128
+also increase lr back to original
+muon_lr = 1e-3, adamw_lr = 1e-4
+
+still not learning well
+
+instead, try only training on shifts of -12 and +12:
+
+output112
+
+improving at vctk, but getting worse at vocalset, despite equal weighting
+probably vocalset is harder?
+
+let's try just vocalset train set
+output113
+doesn't really work... weird.
+
+just shifted by 12, vctk?
+output114
+seems to work properly.
+
+weirdly, grad norm increases near end of training, despite the lr going down???
+this should be similar setup to previous, maybe due to model being less wide?
+
+output115:
+try out the vocos model
+
+works ok, but not as good
+seems to have these line artifacts, not clear why
+
+after like 10-12k steps, the grad norm becomes much more variable and grows... weird
+
+output116:
+vocos but increase kernel size on depthwise convs from 7 to 17, since 8 blocks of kernel 7 = (6*7) +7 = 49 receptive field
+8 blocks with kernel 17 = (16 * 7) + 17 = 129 receptive field
+takes almost exactly the same amount of time forward pass, and adds maybe 2% params, so pretty cheap change
+
+NaNed.  vocos seems quite unstable, keeps having NaN
+
+going back to DAC since not so unstable with NaNs
+
+output117, back to DAC
+reduce batch size to 32, increase width to 1/2 instead of 1/4
+lr: muon=1e-3 adamw=1e-4
+
+output118, still dac
+but now vocalset instead of vctk
+
+fails to train, vocalset seems to be harder
+
+output119
+try n_fft=768 like the guy said for vocos
+# params: 35.25M
+
+output120
+back to n_fft = 1024, but
+make input conv have correct kernel size of 7
+# params: 42.09M
+
+output121:
+half the batch size to speed up training runs, also to match DAC batch size
+
+output122
+change loss function to a l1 loss directly on predicted spectrogram, since the model directly predicts it.
+potentially could reduce the line artifacts?
+
+output123:
+increase width to 1536, reduce to expansion=1
+should have similar # of params, but lets model have extra width vs input / output
+

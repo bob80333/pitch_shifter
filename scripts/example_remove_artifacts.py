@@ -32,7 +32,7 @@ import torch
 from pitch_shifter.model.model_1d_dac import WavUNetDAC
 
 model = WavUNetDAC().to("cuda")
-model.load_state_dict(torch.load("runs/outputs/output109/model_100000.pt"))
+model.load_state_dict(torch.load("runs/outputs/output117/model_20000.pt"))
 
 
 shifted_up = torch.tensor(shifted)

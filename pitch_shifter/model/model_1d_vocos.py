@@ -31,7 +31,7 @@ class ConvNextBlock(nn.Module):
         super().__init__()
 
         self.dw_conv = MyConv1d(
-            channels, channels, kernel_size=17, padding=8, groups=channels
+            channels, channels, kernel_size=7, padding=3, groups=channels
         )
 
         self.pw_conv1 = nn.Linear(channels, channels * expansion)
@@ -74,7 +74,7 @@ class VocosModel(nn.Module):
         self.head = ISTFTHead(dim=model_width, n_fft=n_fft, hop_length=hop_length, padding="center")
         
         # model part
-        self.in_conv = MyConv1d(n_fft + 2, model_width, kernel_size=1)
+        self.in_conv = MyConv1d(n_fft + 2, model_width, kernel_size=7, padding=3)
         
         self.blocks = nn.ModuleList(
             [ConvNextBlock(model_width, layer_scale_init=1/num_layers) for _ in range(num_layers)]

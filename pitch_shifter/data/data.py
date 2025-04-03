@@ -271,9 +271,10 @@ class BetterAudioDataset(Dataset):
         return audio, shifted_audio
 
 
-class PreShiftedDownAudioDatasetV2(Dataset):
+class PreShiftedAudioDatasetV2(Dataset):
     def __init__(self, files, samples=16384, test=False):
         self.preprocessed_files = [str(x) for x in files if "baseline" not in str(x)]
+        self.preprocessed_files = [x for x in self.preprocessed_files if "shifted_12" in x]
 
         self.samples = samples
         self.test = test
