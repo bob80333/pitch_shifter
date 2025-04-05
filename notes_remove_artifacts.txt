@@ -1051,6 +1051,51 @@ change loss function to a l1 loss directly on predicted spectrogram, since the m
 potentially could reduce the line artifacts?
 
 output123:
-increase width to 1536, reduce to expansion=1
-should have similar # of params, but lets model have extra width vs input / output
+l1 loss on spec + melspec loss, the l1 loss reduced the streaky artifacting on the spectrogram but overall had worse results
 
+nope, didn't really fix things
+
+output124:
+increase model width to 1536, decrease expansion to 1.  The input / output dimensions are big, so by increasing model width, maybe will get better results
+reduce expansion to prevent # params exploding too much
+# params: 50.52M
+
+nope, still poor quality.
+
+output125:
+back to DAC, get baseline
+
+output126:
+DAC, increase initial downsampling to 4x:
+initial_stride = 4
+
+output127
+same as before with 4x downsampling
+but change initial upsampling / downsampling.
+
+Previously:
+
+in conv (1ch to 16ch)
+downsample (16ch to 32ch)
+unet
+upsample (32ch to 16)
+outconv(16ch to 1ch)
+
+instead:
+
+in_conv / downsample (1ch to 32ch)
+unet
+upsample + outconv (32ch to 1ch)
+
+~7.5GB vram
+similar quality but faster to train vs output126
+
+
+output128:
+1.5x width, see if can match quality / time of 2x downsample
+channels = [48, 96, 192, 384, 768]
+
+memory: ~10GB
+
+Very similar metrics to output125 but slightly faster
+(1hr 19min vs 1hr 25 min)

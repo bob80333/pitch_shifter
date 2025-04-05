@@ -27,7 +27,7 @@ class MyConv1d(nn.Conv1d):
 
 # vocos uses expansion=3
 class ConvNextBlock(nn.Module):
-    def __init__(self, channels, expansion=2, layer_scale_init=1e-6):
+    def __init__(self, channels, expansion=1, layer_scale_init=1e-6):
         super().__init__()
 
         self.dw_conv = MyConv1d(
@@ -65,7 +65,7 @@ class ConvNextBlock(nn.Module):
 
 
 class VocosModel(nn.Module):
-    def __init__(self, model_width=1024, num_layers = 8, n_fft=1024, hop_length=256):
+    def __init__(self, model_width=1536, num_layers = 8, n_fft=1024, hop_length=256):
         super().__init__()
         
         # fft part

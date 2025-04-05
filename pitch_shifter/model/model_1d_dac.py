@@ -187,32 +187,21 @@ class WavUNetDAC(nn.Module):
         super().__init__()
 
         if channels is None:
-            initial_channels = 16
-            initial_stride = 2
-            channels = [32, 64, 128, 256, 512]
+            initial_stride = 4
+            channels = [48, 96, 192, 384, 768]
             strides = [2, 4, 8, 8]
             dilations = [1, 3, 9]
 
         self.encoder = Encoder(channels, strides, dilations)
         self.decoder = Decoder(channels[::-1], strides[::-1], dilations)
 
-        self.conv_in = MyConv1d(1, initial_channels, kernel_size=7, padding=3)
+        self.conv_in = MyConv1d(1, channels[0], kernel_size=initial_stride*2, stride = initial_stride, padding=initial_stride // 2)
 
         self.conv_out = nn.Sequential(
-            Snake1d(initial_channels),
-            MyConv1d(initial_channels, 1, kernel_size=7, padding=3),
-            nn.Tanh()
-        )
-
-        self.downsample_in = nn.Sequential(
-            Snake1d(initial_channels),
-            MyConv1d(initial_channels, channels[0], kernel_size=2*initial_stride, stride=initial_stride, padding=initial_stride // 2)
-        )
-
-        self.upsample_out = nn.Sequential(
             nn.Upsample(scale_factor=initial_stride), # nearest neighbor upsample
             Snake1d(channels[0]), # act
-            MyConv1d(channels[0], initial_channels, kernel_size=1) # conv to reduce channels
+            MyConv1d(channels[0], 1, kernel_size=7, padding=3), # conv to reduce channels\
+            nn.Tanh()
         )
 
         self.bottleneck = nn.ModuleList()
@@ -222,12 +211,10 @@ class WavUNetDAC(nn.Module):
 
     def forward(self, x):
         x = self.conv_in(x)
-        x = self.downsample_in(x)
         x, residuals = self.encoder(x)
         for block in self.bottleneck:
             x = block(x)
         x = self.decoder(x, residuals)
-        x = self.upsample_out(x)
         x = self.conv_out(x)
         return x
 

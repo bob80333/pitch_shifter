@@ -47,12 +47,10 @@ def main(args):
     g = torch.Generator()
     g.manual_seed(0)
 
-    #model = WavUNetDAC()
-    model = VocosModel()
+    model = WavUNetDAC()
     model.to(device)
 
-    #opt_model = torch.compile(model)
-    model.forward_spectrogram = torch.compile(model.forward_spectrogram)
+    opt_model = torch.compile(model)
 
     # for newer version of Muon
     # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
@@ -163,21 +161,18 @@ def main(args):
         shifted_audio = shifted_audio.unsqueeze(1)
 
         # predict clean audio from shifted audio
-        unshifted_audio = model(shifted_audio)
+        unshifted_audio = opt_model(shifted_audio)
 
-        # l1_loss = l1_loss_fn(unshifted_audio, audio)
+        l1_loss = l1_loss_fn(unshifted_audio, audio)
 
-        # # make tensors AudioSignals for MelSpectrogramLoss (takes in tensors, so should preserve gradients)
-        # audio = AudioSignal(audio, sr)
-        # unshifted_audio = AudioSignal(unshifted_audio, sr)
+        # make tensors AudioSignals for MelSpectrogramLoss (takes in tensors, so should preserve gradients)
+        audio = AudioSignal(audio, sr)
+        unshifted_audio = AudioSignal(unshifted_audio, sr)
 
-        # mel_loss = melspec_loss(unshifted_audio, audio)
+        mel_loss = melspec_loss(unshifted_audio, audio)
 
-        # loss = mel_loss + 10 * l1_loss
+        loss = mel_loss + 10 * l1_loss
 
-        # calculate loss on model spectrogram:
-        l1_loss = l1_loss_fn(model.to_spec(unshifted_audio), model.to_spec(audio))
-        loss = l1_loss
         loss.backward()
         # log / clip grad norm
         writer.add_scalar(
@@ -216,7 +211,7 @@ def main(args):
                         shifted_audio = shifted_audio.unsqueeze(1)
 
                         # remove pitch artifacts from shifted audio
-                        unshifted_audio = model(shifted_audio)
+                        unshifted_audio = opt_model(shifted_audio)
 
 
                         # calculate sisdr loss
@@ -301,7 +296,7 @@ def main(args):
                 audio = audio.unsqueeze(1)
                 shifted_audio = shifted_audio.unsqueeze(1)
 
-                unshifted_audio = model(shifted_audio)
+                unshifted_audio = opt_model(shifted_audio)
 
                 # negate because loss is inverted
                 shifted_si_sdr = -sisdr_loss(shifted_audio, audio)
@@ -352,10 +347,10 @@ if __name__ == "__main__":
     argparser.add_argument("--n_steps", type=int, default=20_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=64)
-    argparser.add_argument("--n_workers", type=int, default=4)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output122")
-    argparser.add_argument("--muon_lr", type=float, default=2e-4)
-    argparser.add_argument("--adam_lr", type=float, default=2e-5)
+    argparser.add_argument("--n_workers", type=int, default=6)
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output128")
+    argparser.add_argument("--muon_lr", type=float, default=1e-3)
+    argparser.add_argument("--adam_lr", type=float, default=1e-4)
 
     args = argparser.parse_args()
 
