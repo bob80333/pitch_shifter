@@ -81,10 +81,10 @@ def main(args):
         generator=g,
     )
 
-    train_vocalset_files = list(Path("dataset_dir/vocalset_dataset/train_processed_v3").rglob("*.flac"))
-    train_vocalset_dataset = PreShiftedAudioDatasetV2(train_vocalset_files, samples=16384 * 3)
-    train_vocalset_dataloader = DataLoader(
-        train_vocalset_dataset,
+    train_acappella_files = list(Path("dataset_dir/acappella_dataset/train_processed_v3").rglob("*.flac"))
+    train_acappella_dataset = PreShiftedAudioDatasetV2(train_acappella_files, samples=16384 * 3)
+    train_acappella_dataloader = DataLoader(
+        train_acappella_dataset,
         batch_size=args.batch_size//2, # half batch size for each dataset
         shuffle=True,
         drop_last=True,
@@ -107,10 +107,10 @@ def main(args):
         generator=g,
     )
 
-    val_vocalset_files = list(Path("dataset_dir/vocalset_dataset/val_processed_v3").rglob("*.flac"))
-    val_vocalset_dataset = PreShiftedAudioDatasetV2(val_vocalset_files, test=True, samples=16384 * 9)
-    val_vocalset_dataloader = DataLoader(
-        val_vocalset_dataset,
+    val_acappella_files = list(Path("dataset_dir/acappella_dataset/val_processed_v3").rglob("*.flac"))
+    val_acappella_dataset = PreShiftedAudioDatasetV2(val_acappella_files, test=True, samples=16384 * 9)
+    val_acappella_dataloader = DataLoader(
+        val_acappella_dataset,
         batch_size=32,
         shuffle=False,
         drop_last=True,
@@ -140,21 +140,21 @@ def main(args):
     writer = SummaryWriter(args.save_dir)
 
     vctk_train_gen = inf_train_generator(train_vctk_dataloader)
-    vocalset_train_gen = inf_train_generator(train_vocalset_dataloader)
+    acappella_train_gen = inf_train_generator(train_acappella_dataloader)
 
     for step in trange(args.n_steps):
         model.train()
         for opt in optimizers:
             opt.zero_grad()
 
-        audio_vctk, shifted_audio_vctk = next(vctk_train_gen)
-        #audio_vocalset, shifted_audio_vocalset = next(vocalset_train_gen)
+        #audio_vctk, shifted_audio_vctk = next(vctk_train_gen)
+        audio_acappella, shifted_audio_acappella = next(acappella_train_gen)
 
-        #audio = torch.cat([audio_vctk, audio_vocalset], dim=0).contiguous().to(device)
-        #shifted_audio = torch.cat([shifted_audio_vctk, shifted_audio_vocalset], dim=0).contiguous().to(device)
+        #audio = torch.cat([audio_vctk, audio_acappella], dim=0).contiguous().to(device)
+        #shifted_audio = torch.cat([shifted_audio_vctk, shifted_audio_acappella], dim=0).contiguous().to(device)
 
-        audio = audio_vctk.to(device)
-        shifted_audio = shifted_audio_vctk.to(device)
+        audio = audio_acappella.to(device)
+        shifted_audio = shifted_audio_acappella.to(device)
 
         # add channels dimension for losses calculation
         audio = audio.unsqueeze(1)
@@ -165,13 +165,19 @@ def main(args):
 
         l1_loss = l1_loss_fn(unshifted_audio, audio)
 
+        # extra spec loss l1
+
+        unshifted_spec = to_spectrogram(unshifted_audio)
+        audio_spec = to_spectrogram(audio)
+        l1_spec_loss = l1_loss_fn(unshifted_spec, audio_spec)
+
         # make tensors AudioSignals for MelSpectrogramLoss (takes in tensors, so should preserve gradients)
         audio = AudioSignal(audio, sr)
         unshifted_audio = AudioSignal(unshifted_audio, sr)
 
         mel_loss = melspec_loss(unshifted_audio, audio)
 
-        loss = mel_loss + 10 * l1_loss
+        loss = mel_loss + 10 * l1_loss + l1_spec_loss
 
         loss.backward()
         # log / clip grad norm
@@ -188,15 +194,16 @@ def main(args):
             scheduler.step()
 
         writer.add_scalar("train/loss", loss, step + 1)
-        #writer.add_scalar("train/mel_loss", mel_loss, step + 1)
+        writer.add_scalar("train/mel_loss", mel_loss, step + 1)
         writer.add_scalar("train/l1_loss", l1_loss, step + 1)
+        writer.add_scalar("train/l1_spec_loss", l1_spec_loss, step + 1)
 
         if (step + 1) % args.eval_every == 0:
             model.eval()
             with torch.no_grad():
                 
-                val_dl = [val_vctk_dataloader, val_vocalset_dataloader]
-                val_dl_name = ["vctk", "vocalset"]
+                val_dl = [val_vctk_dataloader, val_acappella_dataloader]
+                val_dl_name = ["vctk", "acappella"]
                 for loader, name in zip(val_dl, val_dl_name):
                     total_val_loss = 0
                     total_val_sisdr = 0
@@ -344,11 +351,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=20_000)
+    argparser.add_argument("--n_steps", type=int, default=50_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=64)
     argparser.add_argument("--n_workers", type=int, default=6)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output128")
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output133")
     argparser.add_argument("--muon_lr", type=float, default=1e-3)
     argparser.add_argument("--adam_lr", type=float, default=1e-4)
 

@@ -1099,3 +1099,74 @@ memory: ~10GB
 
 Very similar metrics to output125 but slightly faster
 (1hr 19min vs 1hr 25 min)
+
+output129:
+just try out with current DAC setup, on vocalset only, for 50k steps
+the loss curve does seem to work so maybe just training longer will get the metrics?
+looking closer at loss curves, the vocalset l1 loss starts much higher, but does go down over the course of training
+the mel losses are much closer together
+potentially after enough training the l1 loss from vocalset would go down enough that the metrics would be good.
+
+the l1 loss does go down, but PQ metric at end of training has less of an improvement
+
+vocalset summary:
+What, mean, std, median, min, max
+Original PQ, 7.659245404568347, 0.27881763510893415, 7.704552412033081, 5.595457077026367, 8.273711204528809
+Shifted PQ, 7.11860329567731, 0.5339358573495682, 7.214699745178223, 4.199005126953125, 8.172420501708984
+Unshifted PQ, 7.179713985585904, 0.5481777169799491, 7.288026809692383, 3.7031466960906982, 8.176673889160156
+Shifted SI-SDR, -17.528870427962268, 10.418702080456857, -15.319916248321533, -79.99190521240234, 7.413486480712891
+Unshifted SI-SDR, -18.72695849916724, 9.95553650657204, -16.71455192565918, -78.39048767089844, 2.5081114768981934
+vocalset seems much harder than vctk for the model to improve upon
+also, the si-sdr is worse, likely due to problems at high frequencies that the PQ model doesn't see (16khz input)
+
+output130:
+same as previous training run, but change initial_stride to 2, instead of 4
+
+What, mean, std, median, min, max
+Original PQ, 7.659244891706404, 0.2788196539430428, 7.704621315002441, 5.594966411590576, 8.27385139465332
+Shifted PQ, 7.118600283677761, 0.5339569028313468, 7.2141523361206055, 4.198350429534912, 8.172566413879395
+Unshifted PQ, 7.096255014230917, 0.567567524890777, 7.225816249847412, 4.182172775268555, 8.15523910522461
+Shifted SI-SDR, -17.528870427962268, 10.418702080456857, -15.319916248321533, -79.99190521240234, 7.413486480712891
+Unshifted SI-SDR, -19.028118463478737, 10.144328551039186, -16.990509033203125, -77.7410659790039, 1.0546832084655762
+
+worse??
+
+Looking at the output118 results, where the model is trained for fewer steps, it seems the model may be overfitting.
+The vocalset dataset has relatively smaller data, so this makes sense
+
+output131:
+back to initial_stride=4
+using new dataset: acappella dataset
+vocalset had overfitting issues, had only ~7 hrs in the train set, since <10hrs total data
+whereas, acappella dataset has ~32hrs in train set, similar to my vctk split
+also, since raw audio was very long, the preprocessing splits it into 6 second chunks
+
+What, mean, std, median, min, max
+Original PQ, 7.0594006317357225, 0.9441952413873476, 7.513283967971802, 3.641916275024414, 8.27385139465332
+Shifted PQ, 6.649623338641091, 0.8615437623284895, 6.8558807373046875, 3.907163381576538, 8.172566413879395
+Unshifted PQ, 6.759829032601732, 0.8400490713639923, 6.991386651992798, 4.082855701446533, 8.195398330688477
+Shifted SI-SDR, -17.593534711753076, 10.538685560999049, -15.45814561843872, -80.0, 7.413486480712891
+Unshifted SI-SDR, -18.852284542594465, 9.965352939729508, -16.87458324432373, -80.0, 5.987363338470459
+
+output132:
+Looking at training run, looks like lr may have been too high?
+reducing lr to 1/10th and rerunning
+muon = 1e-4, adamw=1e-5
+
+didn't really do much, killed after 27k steps, basically the same results but getting there slower
+
+output133:
+lr back to muon=1e-3, adamw=1e-4
+add a l1 spec loss, to focus on fixing high frequencies
+since waveform l1 focuses on lowest first, and melspec losses have fewer bins at high freq the high frequencies have weird artifacts
+so this should help, and maybe will make si-sdr better
+
+What, mean, std, median, min, max
+Original PQ, 7.059402521530336, 0.9441925432159601, 7.513285398483276, 3.642137289047241, 8.273967742919922
+Shifted PQ, 6.649620947794932, 0.8615459948853172, 6.85598611831665, 3.9075205326080322, 8.172261238098145
+Unshifted PQ, 6.686431228719426, 0.8535854943786507, 6.917947292327881, 3.9454081058502197, 8.130434036254883
+Shifted SI-SDR, -17.593534711753076, 10.538685560999049, -15.45814561843872, -80.0, 7.413486480712891
+Unshifted SI-SDR, -17.22100201038164, 10.08437123453381, -15.430830955505371, -80.0, 7.0363688468933105
+
+SI-SDR better, PQ worse
+not surprising since improvement in higher frequencies that PQ can't see (audiobox aesthetics limited to 16khz input), tradeoff between higher freqs and lower
