@@ -20,6 +20,11 @@ sr = 48_000
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 hop = sr // 200
 
+from torch.amp.grad_scaler import GradScaler
+
+DTYPE = torch.bfloat16
+ENABLE_AUTOCAST = True
+
 # performance tweaks
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -142,44 +147,45 @@ def main(args):
     vctk_train_gen = inf_train_generator(train_vctk_dataloader)
     acappella_train_gen = inf_train_generator(train_acappella_dataloader)
 
+    grad_scaler = GradScaler()
+
     for step in trange(args.n_steps):
         model.train()
         for opt in optimizers:
             opt.zero_grad()
 
-        #audio_vctk, shifted_audio_vctk = next(vctk_train_gen)
-        audio_acappella, shifted_audio_acappella = next(acappella_train_gen)
+        audio_vctk, shifted_audio_vctk = next(vctk_train_gen)
+        #audio_acappella, shifted_audio_acappella = next(acappella_train_gen)
 
         #audio = torch.cat([audio_vctk, audio_acappella], dim=0).contiguous().to(device)
         #shifted_audio = torch.cat([shifted_audio_vctk, shifted_audio_acappella], dim=0).contiguous().to(device)
 
-        audio = audio_acappella.to(device)
-        shifted_audio = shifted_audio_acappella.to(device)
+        audio = audio_vctk.to(device)
+        shifted_audio = shifted_audio_vctk.to(device)
 
         # add channels dimension for losses calculation
         audio = audio.unsqueeze(1)
         shifted_audio = shifted_audio.unsqueeze(1)
 
-        # predict clean audio from shifted audio
-        unshifted_audio = opt_model(shifted_audio)
+        with torch.autocast("cuda", enabled=ENABLE_AUTOCAST, dtype=DTYPE):
 
-        l1_loss = l1_loss_fn(unshifted_audio, audio)
+            # predict clean audio from shifted audio
+            unshifted_audio = opt_model(shifted_audio)
 
-        # extra spec loss l1
+            l1_loss = l1_loss_fn(unshifted_audio, audio)
 
-        unshifted_spec = to_spectrogram(unshifted_audio)
-        audio_spec = to_spectrogram(audio)
-        l1_spec_loss = l1_loss_fn(unshifted_spec, audio_spec)
+            # make tensors AudioSignals for MelSpectrogramLoss (takes in tensors, so should preserve gradients)
+            audio = AudioSignal(audio, sr)
+            unshifted_audio = AudioSignal(unshifted_audio, sr)
 
-        # make tensors AudioSignals for MelSpectrogramLoss (takes in tensors, so should preserve gradients)
-        audio = AudioSignal(audio, sr)
-        unshifted_audio = AudioSignal(unshifted_audio, sr)
+            mel_loss = melspec_loss(unshifted_audio, audio)
 
-        mel_loss = melspec_loss(unshifted_audio, audio)
+            loss = mel_loss + 10 * l1_loss
 
-        loss = mel_loss + 10 * l1_loss + l1_spec_loss
-
-        loss.backward()
+        grad_scaler.scale(loss).backward()
+        # unscale for gradient clipping
+        grad_scaler.unscale_(optimizers[0])
+        grad_scaler.unscale_(optimizers[1])
         # log / clip grad norm
         writer.add_scalar(
             "train/grad_norm",
@@ -188,15 +194,16 @@ def main(args):
         )
 
         for opt in optimizers:
-            opt.step()
+            grad_scaler.step(opt)
         
         for scheduler in schedulers:
             scheduler.step()
 
+        grad_scaler.update() # update scale for next step
+
         writer.add_scalar("train/loss", loss, step + 1)
         writer.add_scalar("train/mel_loss", mel_loss, step + 1)
         writer.add_scalar("train/l1_loss", l1_loss, step + 1)
-        writer.add_scalar("train/l1_spec_loss", l1_spec_loss, step + 1)
 
         if (step + 1) % args.eval_every == 0:
             model.eval()
@@ -217,9 +224,9 @@ def main(args):
                         audio = audio.unsqueeze(1)
                         shifted_audio = shifted_audio.unsqueeze(1)
 
-                        # remove pitch artifacts from shifted audio
-                        unshifted_audio = opt_model(shifted_audio)
-
+                        with torch.autocast("cuda", enabled=ENABLE_AUTOCAST, dtype=DTYPE):
+                            # predict clean audio from shifted audio
+                            unshifted_audio = opt_model(shifted_audio)
 
                         # calculate sisdr loss
                         val_sisdr = sisdr_loss(unshifted_audio, audio)
@@ -303,7 +310,11 @@ def main(args):
                 audio = audio.unsqueeze(1)
                 shifted_audio = shifted_audio.unsqueeze(1)
 
-                unshifted_audio = opt_model(shifted_audio)
+                with torch.autocast("cuda", enabled=ENABLE_AUTOCAST, dtype=DTYPE):
+                    # predict clean audio from shifted audio
+                    unshifted_audio = opt_model(shifted_audio)
+
+                unshifted_audio = unshifted_audio.float() # convert back to fp32 for metrics
 
                 # negate because loss is inverted
                 shifted_si_sdr = -sisdr_loss(shifted_audio, audio)
@@ -351,11 +362,11 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=50_000)
+    argparser.add_argument("--n_steps", type=int, default=20_000)
     argparser.add_argument("--eval_every", type=int, default=1000)
     argparser.add_argument("--batch_size", type=int, default=64)
     argparser.add_argument("--n_workers", type=int, default=6)
-    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output133")
+    argparser.add_argument("--save_dir", type=str, default="runs/outputs/output136")
     argparser.add_argument("--muon_lr", type=float, default=1e-3)
     argparser.add_argument("--adam_lr", type=float, default=1e-4)
 

@@ -188,7 +188,7 @@ class WavUNetDAC(nn.Module):
 
         if channels is None:
             initial_stride = 4
-            channels = [48, 96, 192, 384, 768]
+            channels = [32, 64, 128, 256, 512]
             strides = [2, 4, 8, 8]
             dilations = [1, 3, 9]
 
@@ -228,20 +228,20 @@ if __name__ == "__main__":
     # print # model params
     params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"# params: {params/1e6:.2f}M")
-    x = torch.randn(32, 1, 16384*3).to("cuda")
+    x = torch.randn(4, 1, 16384*4).to("cuda")
     print(x.shape)
     from time import time
     from tqdm import trange
     # warmup
     with torch.no_grad():
-        for _ in trange(50):
-            x = torch.randn(32, 1, 16384*3).to("cuda")
+        for _ in trange(100):
+            x = torch.randn(4, 1, 16384*4).to("cuda")
             y = opt_model(x)
 
     with torch.no_grad():
         start = time()
-        for _ in trange(200):
-            x = torch.randn(32, 1, 16384*3).to("cuda")
+        for _ in trange(500):
+            x = torch.randn(4, 1, 16384*4).to("cuda")
             y = opt_model(x)
         end = time()
     print("Input shape", x.shape, "Output shape", y.shape)

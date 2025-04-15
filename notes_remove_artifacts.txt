@@ -1170,3 +1170,23 @@ Unshifted SI-SDR, -17.22100201038164, 10.08437123453381, -15.430830955505371, -8
 
 SI-SDR better, PQ worse
 not surprising since improvement in higher frequencies that PQ can't see (audiobox aesthetics limited to 16khz input), tradeoff between higher freqs and lower
+
+
+New thought:
+Models operating on raw audio generally cannot handle low precision like fp16, bf16
+EVA-GAN paper directly says that fp16 didn't work, bf16 sounded worse, so they used TF32 (19-bit floating point)
+this may be related to the data being 16bit and being stored between -1 to 1, when downcasted too much precision is lost
+let's try some methods to solve this problem
+firstly, revert to using VCTK for 20k steps as baseline, this lets comparisons happen fairly
+
+reduce DAC model width to 32 from 48 as well, to increase training speed
+also remove the l1 spec loss
+
+output134: baseline
+
+output135: fp16 with grad scalar
+
+output136: bf16
+
+overall very similar
+potentially only the GAN aspect causes issues with fp16/bf16?

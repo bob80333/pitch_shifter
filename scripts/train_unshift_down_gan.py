@@ -1,7 +1,7 @@
 from muon import Muon
 import torch
 import torch._dynamo.cache_size
-from pitch_shifter.model.model_1d_v2 import WavUNet
+from pitch_shifter.model.model_1d_dac import WavUNetDAC
 from pitch_shifter.data.data import PreShiftedAudioDataset
 from torch.utils.data import DataLoader
 from pathlib import Path
@@ -56,7 +56,7 @@ def main(args):
     g.manual_seed(0)
 
 
-    model = WavUNet()
+    model = WavUNetDAC()
     model.to(device)
 
     opt_model = torch.compile(model)
@@ -67,16 +67,16 @@ def main(args):
     # this used to work, but then i restarted my computer and now almost none of the discriminators compile
     # idk
 
-    for i in range(len(disc.discriminators)):
-        if i == 1 or i == 2 or i == 3 or i == 4:
-            continue # skip the second one
-        if i < 5:
-            disc.discriminators[i] = torch.compile(disc.discriminators[i])
-        else:
-            # compile each conv separately, the whole model can't be compiled
-            # doubly nested list comprehension to compile each conv in each band (originally is doubly nested modulelist)
-            #disc.discriminators[i].band_convs = torch.nn.ModuleList([torch.nn.ModuleList([torch.compile(conv) for conv in band]) for band in disc.discriminators[i].band_convs])
-            pass # faster to not compile these for some reason
+    # for i in range(len(disc.discriminators)):
+    #     if i == 1 or i == 2 or i == 3 or i == 4:
+    #         continue # skip the second one
+    #     if i < 5:
+    #         disc.discriminators[i] = torch.compile(disc.discriminators[i])
+    #     else:
+    #         # compile each conv separately, the whole model can't be compiled
+    #         # doubly nested list comprehension to compile each conv in each band (originally is doubly nested modulelist)
+    #         #disc.discriminators[i].band_convs = torch.nn.ModuleList([torch.nn.ModuleList([torch.compile(conv) for conv in band]) for band in disc.discriminators[i].band_convs])
+    #         pass # faster to not compile these for some reason
 
     # # compile the convs of each discriminator for faster training
     # i = 0
@@ -96,42 +96,60 @@ def main(args):
 
 
 
-    # for newer version of Muon
-    # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
-    muon_params = [p for p in model.parameters() if p.ndim >= 2]
-    # Find everything else -- these will be optimized by AdamW
-    adamw_params = [p for p in model.parameters() if p.ndim < 2]
-    # Create the optimizer
+    # # for newer version of Muon
+    # # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
+    # muon_params = [p for p in model.parameters() if p.ndim >= 2]
+    # # Find everything else -- these will be optimized by AdamW
+    # adamw_params = [p for p in model.parameters() if p.ndim < 2]
+    # # Create the optimizer
+    # g_optimizers = [
+    #     Muon(muon_params, lr=1e-3, momentum=0.95, weight_decay=0.01),
+    #     torch.optim.AdamW(adamw_params, lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01),
+    # ]
+
+    # # for newer version of Muon
+    # # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
+    # muon_params = [p for p in disc.parameters() if p.ndim >= 2]
+    # # Find everything else -- these will be optimized by AdamW
+    # adamw_params = [p for p in disc.parameters() if p.ndim < 2]
+    # # Create the optimizer
+    # d_optimizers = [
+    #     Muon(muon_params, lr=1e-3, momentum=0.95, weight_decay=0.01),
+    #     torch.optim.AdamW(adamw_params, lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01),
+    # ]
+
+    # # g_optim = torch.optim.AdamW(model.parameters(), lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01)
+    # # d_optim = torch.optim.AdamW(disc.parameters(), lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01)
+
+    # # multiply the LR by gamma every step, as in DAC
+    # LR_GAMMA = 0.999996
+    # LR_STEP_SIZE = 1
+
+    # # g_scheduler = torch.optim.lr_scheduler.StepLR(g_optim, step_size=LR_STEP_SIZE, gamma=LR_GAMMA)
+    # # d_scheduler = torch.optim.lr_scheduler.StepLR(d_optim, step_size=LR_STEP_SIZE, gamma=LR_GAMMA)
+
+    # g_schedulers = [torch.optim.lr_scheduler.StepLR(optim, step_size=LR_STEP_SIZE, gamma=LR_GAMMA) for optim in g_optimizers]
+    # d_schedulers = [torch.optim.lr_scheduler.StepLR(optim, step_size=LR_STEP_SIZE, gamma=LR_GAMMA) for optim in d_optimizers]
+
+    # just use adamw as optimizer, due to muon being slow
     g_optimizers = [
-        Muon(muon_params, lr=1e-3, momentum=0.95, weight_decay=0.01),
-        torch.optim.AdamW(adamw_params, lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01),
+        torch.optim.AdamW(model.parameters(), lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01),
     ]
 
-    # for newer version of Muon
-    # Find ≥2D parameters in the body of the network -- these will be optimized by Muon
-    muon_params = [p for p in disc.parameters() if p.ndim >= 2]
-    # Find everything else -- these will be optimized by AdamW
-    adamw_params = [p for p in disc.parameters() if p.ndim < 2]
-    # Create the optimizer
     d_optimizers = [
-        Muon(muon_params, lr=1e-3, momentum=0.95, weight_decay=0.01),
-        torch.optim.AdamW(adamw_params, lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01),
+        torch.optim.AdamW(disc.parameters(), lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01),
     ]
 
-    # g_optim = torch.optim.AdamW(model.parameters(), lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01)
-    # d_optim = torch.optim.AdamW(disc.parameters(), lr=1e-4, betas=(0.8, 0.99), weight_decay=0.01)
+    # decay lr linearly to 0
+    g_schedulers = [
+         torch.optim.lr_scheduler.LambdaLR(optim, lambda step: 1 - step / args.n_steps) for optim in g_optimizers
+    ]
 
-    # multiply the LR by gamma every step, as in DAC
-    LR_GAMMA = 0.999996
-    LR_STEP_SIZE = 1
+    d_schedulers = [
+        torch.optim.lr_scheduler.LambdaLR(optim, lambda step: 1 - step / args.n_steps) for optim in d_optimizers
+    ]
 
-    # g_scheduler = torch.optim.lr_scheduler.StepLR(g_optim, step_size=LR_STEP_SIZE, gamma=LR_GAMMA)
-    # d_scheduler = torch.optim.lr_scheduler.StepLR(d_optim, step_size=LR_STEP_SIZE, gamma=LR_GAMMA)
-
-    g_schedulers = [torch.optim.lr_scheduler.StepLR(optim, step_size=LR_STEP_SIZE, gamma=LR_GAMMA) for optim in g_optimizers]
-    d_schedulers = [torch.optim.lr_scheduler.StepLR(optim, step_size=LR_STEP_SIZE, gamma=LR_GAMMA) for optim in d_optimizers]
-
-    train_files = list(Path("dataset_dir/train_processed_unshift_down_2").rglob("*.wav"))
+    train_files = list(Path("dataset_dir/vctk_dataset/train_processed_unshift_down_2").rglob("*.wav"))
     print(f"Found {len(train_files)} training files")
     train_dataset = PreShiftedAudioDataset(train_files)
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=args.n_workers, persistent_workers=True, worker_init_fn=seed_worker, generator=g)
@@ -318,6 +336,80 @@ def main(args):
             print(f"Step {step+1}, val_loss: {total_val_loss}")
 
             torch.save(model.state_dict(), os.path.join(args.save_dir, f"model_{step+1}.pt"))
+
+    
+    # done training, final evaluation using audiobox + sisdr
+    from audiobox_aesthetics.infer import AesPredictor
+    predictor = AesPredictor(checkpoint_pth=None, batch_size=args.batch_size)
+
+    # sisdr loss no averaging
+    sisdr_loss = SISDRLoss(reduction="none")
+
+    shifted_si_sdrs = []
+    unshifted_si_sdrs = []
+
+    original_pqs = []
+    shifted_pqs = []
+    unshifted_pqs = []
+
+    with torch.no_grad():
+        from tqdm import tqdm
+        model.eval()
+        for loader, name in zip(val_dl, val_dl_name):
+            for audio, shifted_audio in tqdm(loader):
+                audio, shifted_audio = audio.to(device), shifted_audio.to(device)
+                # add channels
+                audio = audio.unsqueeze(1)
+                shifted_audio = shifted_audio.unsqueeze(1)
+
+                with torch.autocast("cuda", enabled=ENABLE_AUTOCAST, dtype=DTYPE):
+                    # predict clean audio from shifted audio
+                    unshifted_audio = opt_model(shifted_audio)
+
+                unshifted_audio = unshifted_audio.float() # convert back to fp32 for metrics
+
+                # negate because loss is inverted
+                shifted_si_sdr = -sisdr_loss(shifted_audio, audio)
+                unshifted_si_sdr = -sisdr_loss(unshifted_audio, audio)
+
+                # pq = Production Quality
+                audio_input = [{"path": a, "sample_rate": sr} for a in audio]
+                shifted_audio_input = [{"path": a, "sample_rate": sr} for a in shifted_audio]
+                unshifted_audio_input = [{"path": a, "sample_rate": sr} for a in unshifted_audio]
+                original_pq = predictor.forward(audio_input)
+                shifted_pq = predictor.forward(shifted_audio_input)
+                unshifted_pq = predictor.forward(unshifted_audio_input)
+
+                shifted_si_sdrs.append(shifted_si_sdr.tolist())
+                unshifted_si_sdrs.append(unshifted_si_sdr.tolist())
+
+                # pull out PQ values
+                original_pqs.append([pq["PQ"] for pq in original_pq])
+                shifted_pqs.append([pq["PQ"] for pq in shifted_pq])
+                unshifted_pqs.append([pq["PQ"] for pq in unshifted_pq])
+
+            # save results
+            with open(os.path.join(args.save_dir, f"{name}_results.txt"), "w") as f:
+                f.write("Shifted PQs\n")
+                f.write(str(shifted_pqs))
+                f.write("\n")
+                f.write("Unshifted PQs\n")
+                f.write(str(unshifted_pqs))
+                f.write("\n")
+                f.write("Shifted SI-SDRs\n")
+                f.write(str(shifted_si_sdrs))
+                f.write("\n")
+                f.write("Unshifted SI-SDRs\n")
+                f.write(str(unshifted_si_sdrs))
+                f.write("\n")
+
+            with open(os.path.join(args.save_dir, f"{name}_summary.txt"), "w") as f:
+                f.write(f"What, mean, std, median, min, max\n")
+                f.write(f"Original PQ, {np.mean(original_pqs)}, {np.std(original_pqs)}, {np.median(original_pqs)}, {np.min(original_pqs)}, {np.max(original_pqs)}\n")
+                f.write(f"Shifted PQ, {np.mean(shifted_pqs)}, {np.std(shifted_pqs)}, {np.median(shifted_pqs)}, {np.min(shifted_pqs)}, {np.max(shifted_pqs)}\n")
+                f.write(f"Unshifted PQ, {np.mean(unshifted_pqs)}, {np.std(unshifted_pqs)}, {np.median(unshifted_pqs)}, {np.min(unshifted_pqs)}, {np.max(unshifted_pqs)}\n")
+                f.write(f"Shifted SI-SDR, {np.mean(shifted_si_sdrs)}, {np.std(shifted_si_sdrs)}, {np.median(shifted_si_sdrs)}, {np.min(shifted_si_sdrs)}, {np.max(shifted_si_sdrs)}\n")
+                f.write(f"Unshifted SI-SDR, {np.mean(unshifted_si_sdrs)}, {np.std(unshifted_si_sdrs)}, {np.median(unshifted_si_sdrs)}, {np.min(unshifted_si_sdrs)}, {np.max(unshifted_si_sdrs)}\n")
 
 
     
