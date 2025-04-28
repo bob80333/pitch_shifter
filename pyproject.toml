@@ -1,10 +1,52 @@
-[build-system]
-requires = ["setuptools>=42", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "pitch_shifter"
-version = "0.1"
+name = "pitch-shifter"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "~=3.12"
+dependencies = [
+    "audiobox-aesthetics>=0.0.3",
+    "auraloss>=0.4.0",
+    "descript-audio-codec>=1.0.0",
+    "descript-audiotools>=0.7.2",
+    "python-stretch>=0.3.1",
+    "pytorch-triton>=3.3.0",
+    "safetensors>=0.5.3",
+    "soundfile>=0.13.1",
+    "tensorboard>=2.19.0",
+    "torch>=2.8.0.dev20250416",
+    "torchaudio>=2.6.0.dev20250416",
+    "torchvision>=0.22.0.dev20250416",
+    "tqdm>=4.67.1",
+]
 
 [tool.setuptools]
 packages = ["pitch_shifter"]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+  { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
+torchvision = [
+  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+  { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
+torchaudio = [
+  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+  { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
+pytorch-triton = [
+  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+  { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/nightly/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/nightly/cu128"
+explicit = true

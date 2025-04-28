@@ -1,4 +1,3 @@
-from muon import Muon
 import torch
 import torch._dynamo.cache_size
 from pitch_shifter.model.model_1d_dac import WavUNetDAC
@@ -26,8 +25,8 @@ sr = 48_000
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 hop = sr // 200
 
-AMP_ENABLE = False
-AMP_DTYPE = torch.bfloat16
+AMP_ENABLE = True
+AMP_DTYPE = torch.float16
 
 # performance tweaks
 torch.backends.cudnn.benchmark = True
@@ -68,9 +67,14 @@ def main(args):
 
     disc = Discriminator(
         sample_rate=sr,
-        bands=[[0.0, 0.1], [0.1, 0.25], [0.25, 0.5], [0.5, 0.75], [0.75, 1.0]],
+        bands=[],
+        fft_sizes=[],
+        periods=[2, 3, 5, 7, 11],
+        rates = [1, 2, 4]
     )
     disc.to(device)
+
+    opt_disc = torch.compile(disc)
 
     # just use adamw as optimizer, due to muon being slow
     g_optimizers = [
@@ -99,7 +103,7 @@ def main(args):
     train_vctk_files = list(
         Path("dataset_dir/vctk_dataset/train_processed_unshift_down_2").rglob("*.wav")
     )
-    train_vctk_dataset = PreShiftedAudioDataset(train_vctk_files)
+    train_vctk_dataset = PreShiftedAudioDataset(train_vctk_files, samples=16384*4)
     train_vctk_dataloader = DataLoader(
         train_vctk_dataset,
         batch_size=args.batch_size,
@@ -127,7 +131,7 @@ def main(args):
     sisdr_loss = SISDRLoss()
 
     # train losses
-    gan_loss = GANLoss(disc)
+    gan_loss = GANLoss(opt_disc)
 
     # using setting from DAC base.yml:
     melspec_loss = MelSpectrogramLoss(
@@ -169,7 +173,7 @@ def main(args):
         for d_opt in d_optimizers:
             d_opt.zero_grad()
 
-        with amp.autocast(device_type="cuda", dtype=AMP_DTYPE, enabled=AMP_ENABLE):
+        with torch.autocast("cuda", dtype=AMP_DTYPE, enabled=AMP_ENABLE):
 
             # discriminator loss
             # no grad for generator
@@ -246,7 +250,7 @@ def main(args):
                     total_val_sisdr = 0
                     total_shifted_loss = 0
                     i = 0
-                    for audio, shifted_audio in val_dl:
+                    for audio, shifted_audio in loader:
                         audio = audio.to(device)
                         shifted_audio = shifted_audio.to(device)
 
@@ -259,10 +263,22 @@ def main(args):
                             # remove pitch artifacts from shifted audio
                             unshifted_audio = opt_model(shifted_audio)
 
-                        val_loss = melspec_loss(unshifted_audio, audio)
                         # calculate sisdr loss
                         val_sisdr = sisdr_loss(unshifted_audio, audio)
+
+                        # to audio signal for melspec loss
+                        unshifted_audio = AudioSignal(unshifted_audio, sample_rate=sr)
+                        shifted_audio = AudioSignal(shifted_audio, sample_rate=sr)
+                        audio = AudioSignal(audio, sample_rate=sr)
+                        
+                        # calculate melspec loss
+                        val_loss = melspec_loss(unshifted_audio, audio) 
                         shifted_loss = melspec_loss(shifted_audio, audio)
+
+                        # back to tensor
+                        unshifted_audio = unshifted_audio.audio_data
+                        shifted_audio = shifted_audio.audio_data
+                        audio = audio.audio_data
 
                         total_val_loss += val_loss
                         total_val_sisdr += val_sisdr
@@ -410,12 +426,12 @@ def main(args):
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--n_steps", type=int, default=100_000)
-    argparser.add_argument("--eval_every", type=int, default=1000)
-    argparser.add_argument("--batch_size", type=int, default=8)
-    argparser.add_argument("--n_workers", type=int, default=4)
+    argparser.add_argument("--n_steps", type=int, default=500_000)
+    argparser.add_argument("--eval_every", type=int, default=5000)
+    argparser.add_argument("--batch_size", type=int, default=4)
+    argparser.add_argument("--n_workers", type=int, default=8)
     argparser.add_argument(
-        "--save_dir", type=str, default="runs/outputs_unshift_down_gan/output3"
+        "--save_dir", type=str, default="runs/outputs_unshift_down_gan/output9"
     )
 
     args = argparser.parse_args()
